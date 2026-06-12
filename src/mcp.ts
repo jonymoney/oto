@@ -142,7 +142,14 @@ async function getHistory(userId: string, limit?: number, offset?: number) {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: 'oto', version: '0.1.0' })
+  const origin = new URL(config.MCP_SERVER_URL).origin
+  const server = new McpServer({
+    name: 'oto',
+    title: 'oto',
+    version: '0.1.0',
+    websiteUrl: origin,
+    icons: [{ src: `${origin}/icon.png`, mimeType: 'image/png', sizes: ['512x512'] }],
+  })
 
   registerAppResource(
     server,

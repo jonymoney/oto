@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import express from 'express'
 import type { Request, Response } from 'express'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -14,10 +16,23 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'oto' })
 })
 
+// Brand assets: the connector icon Claude shows comes from the domain favicon
+// and the MCP serverInfo icons, both served from here.
+const publicDir = path.join(process.cwd(), 'public')
+const iconPng = readFileSync(path.join(publicDir, 'icon.png'))
+const faviconIco = readFileSync(path.join(publicDir, 'favicon.ico'))
+app.get('/icon.png', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400').type('png').send(iconPng)
+})
+app.get('/favicon.ico', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400').type('image/x-icon').send(faviconIco)
+})
+
 // Landing for the bare domain: where Site-URL fallbacks and curious visitors end up.
 const landingHtml = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>oto — text to speech for your AI chats</title>
+<link rel="icon" type="image/png" href="/icon.png">
 <style>
   body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16130f;color:#e8e0d4;
        font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}
