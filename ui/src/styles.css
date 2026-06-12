@@ -354,6 +354,89 @@ body {
   color: var(--ink-3);
 }
 
+/* ───────────────────────── processing (the instrument rendering) ───────────────────────── */
+
+.oto-render-screen {
+  position: relative;
+  padding: 13px 12px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  /* same dark glass as the vortex CRT — phosphor amber works in both themes */
+  background: radial-gradient(130% 110% at 50% 32%, #191307 0%, #0d0b07 70%, #070604 100%);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
+}
+
+.oto-render-wave {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 1px;
+  white-space: pre;
+  user-select: none;
+}
+
+.oto-render-lit {
+  color: #ffb02e;
+  text-shadow: 0 0 5px rgba(255, 176, 46, 0.5), 0 0 14px rgba(255, 157, 10, 0.18);
+}
+
+.oto-render-head {
+  color: #ffd584;
+  text-shadow: 0 0 6px rgba(255, 213, 132, 0.85), 0 0 18px rgba(255, 157, 10, 0.4);
+  animation: oto-render-head 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes oto-render-head {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.oto-render-rest {
+  color: rgba(236, 232, 223, 0.16);
+}
+
+.oto-render-screen[data-dead='true'] .oto-render-wave {
+  opacity: 0.45;
+}
+
+.oto-render-screen[data-dead='true'] .oto-render-head {
+  animation: none;
+}
+
+.oto-render-caption {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ready pulse when a background render lands in the player */
+.oto-panel[data-arrived='true'] {
+  animation: oto-enter 220ms cubic-bezier(0.2, 0.7, 0.3, 1), oto-arrived 1.5s ease-out;
+}
+
+@keyframes oto-arrived {
+  0% {
+    border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+    box-shadow: 0 0 0 1px var(--accent-dim), 0 0 22px var(--accent-dim);
+  }
+  100% {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 /* ───────────────────────── errors ───────────────────────── */
 
 .oto-error {
@@ -444,6 +527,42 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.oto-row-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.oto-row-state[data-state='processing'] {
+  color: var(--accent);
+}
+
+.oto-row-state[data-state='error'] {
+  color: var(--danger);
+}
+
+.oto-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  box-shadow: 0 0 4px var(--accent-dim);
+  animation: oto-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes oto-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .oto-row-actions {

@@ -11,11 +11,26 @@ import { z } from 'zod'
 import { config } from './config.js'
 import { audioRepo, usageRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
-import { synthesize, resolveVoice, VOICES } from './tts.js'
+import { synthesize, resolveVoice, chunkText, estimateSec, VOICES } from './tts.js'
+import { startGenerationJob } from './jobs.js'
 import { userIdFrom, authUserFrom } from './auth.js'
-import type { AudioRecord, HistoryItem, HistoryPayload, PlayerPayload, VortexPayload } from './types.js'
+import type {
+  AudioRecord,
+  HistoryItem,
+  HistoryPayload,
+  PlayerPayload,
+  ProcessingPayload,
+  StatusPayload,
+  VortexPayload,
+} from './types.js'
 
 const PLAYER_URI = 'ui://oto/player.html'
+
+// Texts at or under SYNC_THRESHOLD synthesize inside the tool call (well under
+// host/edge timeouts); longer ones return a processing payload and generate in
+// a background job that the widget polls via get_audio_status.
+const SYNC_THRESHOLD = 4_000
+const TEXT_MAX_CHARS = 50_000
 
 // Railway buckets use virtual-host style URLs: presigned GETs resolve to
 // https://<bucket>.<endpoint-host>/..., so the CSP must cover that subdomain,
@@ -59,6 +74,18 @@ const playerPayloadShape = {
   deduped: z.boolean(),
 }
 
+const audioStatusEnum = z.enum(['processing', 'ready', 'error'])
+
+const statusPayloadShape = {
+  kind: z.literal('status'),
+  id: z.string(),
+  status: audioStatusEnum,
+  chunksDone: z.number(),
+  chunksTotal: z.number(),
+  error: z.string().nullable(),
+  audio: z.object(playerPayloadShape).nullable(),
+}
+
 const historyPayloadShape = {
   kind: z.literal('history'),
   items: z.array(
@@ -69,6 +96,7 @@ const historyPayloadShape = {
       voice: z.string(),
       charCount: z.number(),
       createdAt: z.string(),
+      status: audioStatusEnum,
     }),
   ),
   total: z.number(),
@@ -100,11 +128,6 @@ function fmtMinutes(seconds: number): string {
   return `${(seconds / 60).toFixed(1)} min`
 }
 
-/** ~15 chars/sec of speech — fallback when the mp3 duration probe fails. */
-function estimateSec(charCount: number): number {
-  return charCount / 15
-}
-
 /** Exempt from the generation quota via env allowlist or the DB unlimited flag. */
 async function isQuotaExempt(userId: string, email?: string): Promise<boolean> {
   if (email && config.quotaExemptEmails.has(email.toLowerCase())) return true
@@ -124,6 +147,19 @@ async function playerPayload(rec: AudioRecord, deduped: boolean): Promise<Player
   }
 }
 
+function processingPayload(rec: AudioRecord): ProcessingPayload {
+  return {
+    kind: 'processing',
+    id: rec.id,
+    title: rec.title,
+    charCount: rec.charCount,
+    chunksDone: rec.chunksDone,
+    // chunksTotal is always set on 'processing' rows; ?? 0 satisfies the type.
+    chunksTotal: rec.chunksTotal ?? 0,
+    createdAt: rec.createdAt,
+  }
+}
+
 function historyItem(rec: AudioRecord): HistoryItem {
   return {
     id: rec.id,
@@ -132,6 +168,7 @@ function historyItem(rec: AudioRecord): HistoryItem {
     voice: rec.voice,
     charCount: rec.charCount,
     createdAt: rec.createdAt,
+    status: rec.status,
   }
 }
 
@@ -194,14 +231,15 @@ export function buildServer(): McpServer {
       description:
         'Convert text to spoken audio and show an inline audio player. ' +
         'Audio is generated once and stored: repeating the same text/voice returns the existing audio. ' +
+        `Texts over ${SYNC_THRESHOLD} characters generate in the background — the player shows progress and updates itself when ready. ` +
         `Voices: ${VOICES.join(', ')}.` +
         (quotaSec > 0
           ? ` Each user can generate up to ${config.QUOTA_MINUTES} minutes of new audio; stored audios stay playable for free.`
           : ''),
       inputSchema: {
-        // Capped so worst-case generation stays well under host/edge timeouts:
-        // responses are buffered JSON with zero bytes on the wire until done.
-        text: z.string().min(1).max(8000).describe('The text to read aloud'),
+        // Long texts generate in the background, so the cap bounds per-request
+        // cost rather than response latency.
+        text: z.string().min(1).max(TEXT_MAX_CHARS).describe('The text to read aloud'),
         voice: z.string().optional().describe(`Voice to use (default ${config.TTS_VOICE})`),
         instructions: z
           .string()
@@ -209,7 +247,8 @@ export function buildServer(): McpServer {
           .optional()
           .describe('Optional delivery directions: tone, accent, emotion, pacing'),
       },
-      outputSchema: playerPayloadShape,
+      // No outputSchema: the result is a union (PlayerPayload | ProcessingPayload)
+      // that a flat zod shape can't express; structuredContent alone is valid.
       _meta: { ui: { resourceUri: PLAYER_URI } },
     },
     async ({ text, voice, instructions }, extra) => {
@@ -221,8 +260,26 @@ export function buildServer(): McpServer {
         const resolvedVoice = resolveVoice(voice)
         const hash = contentHash(cleanText, resolvedVoice, instructions?.trim() || undefined)
 
-        const existing = await audioRepo.findByHash(userId, hash)
-        if (existing) {
+        let existing = await audioRepo.findByHash(userId, hash)
+        // Janitor here as well as in get_audio_status: a wedged 'processing'
+        // row must not hold its dedup key forever when the widget never polls
+        // it to resolution (it flips to 'error' and is cleared just below).
+        if (existing) existing = await audioRepo.resolveStale(existing)
+        if (existing?.status === 'processing') {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `"${existing.title}" is already generating (${existing.chunksDone}/${existing.chunksTotal ?? '?'} chunks done) — the player updates itself when ready.`,
+              },
+            ],
+            structuredContent: processingPayload(existing),
+          }
+        }
+        if (existing?.status === 'error') {
+          // A dead row would block the dedup key forever — clear it and regenerate.
+          await audioRepo.deleteById(userId, existing.id)
+        } else if (existing) {
           const payload = await playerPayload(existing, true)
           return {
             content: [
@@ -246,13 +303,76 @@ export function buildServer(): McpServer {
               ),
             )
           }
+          // Pre-flight on the length estimate (with 15% headroom for its
+          // roughness) so a long text can't start a background job that blows
+          // far past the quota.
+          const estSec = estimateSec(cleanText.length)
+          if (usedSec + estSec > quotaSec * 1.15) {
+            return errorResult(
+              new Error(
+                `This text is ~${fmtMinutes(estSec)} of audio, but only ${fmtMinutes(Math.max(quotaSec - usedSec, 0))} ` +
+                  `of the ${config.QUOTA_MINUTES} min generation quota remains. Try a shorter text.`,
+              ),
+            )
+          }
+        }
+
+        const objectKey = `audio/${userId}/${hash}.${config.TTS_FORMAT}`
+
+        if (cleanText.length > SYNC_THRESHOLD) {
+          const chunks = chunkText(cleanText)
+          const { rec, created } = await audioRepo.insert({
+            userId,
+            textHash: hash,
+            text: cleanText,
+            title: makeTitle(cleanText),
+            voice: resolvedVoice,
+            model: config.TTS_MODEL,
+            format: config.TTS_FORMAT,
+            objectKey,
+            durationSec: null,
+            charCount: cleanText.length,
+            status: 'processing',
+            chunksTotal: chunks.length,
+            chunksDone: 0,
+            errorMessage: null,
+          })
+          // Only the request that actually inserted the row owns the job —
+          // a lost race means another request is already generating it.
+          if (created) {
+            startGenerationJob({
+              recId: rec.id,
+              userId,
+              email,
+              text: cleanText,
+              voice: resolvedVoice,
+              instructions,
+              objectKey: rec.objectKey,
+            })
+          }
+          if (rec.status === 'ready') {
+            return {
+              content: [
+                { type: 'text' as const, text: `Audio "${rec.title}" already exists. The player is displayed to the user.` },
+              ],
+              structuredContent: await playerPayload(rec, true),
+            }
+          }
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Generating ~${fmtMinutes(estimateSec(cleanText.length))} of audio in the background — the player updates itself when ready.`,
+              },
+            ],
+            structuredContent: processingPayload(rec),
+          }
         }
 
         const result = await synthesize(cleanText, { voice: resolvedVoice, instructions })
-        const objectKey = `audio/${userId}/${hash}.${result.format}`
         await putAudio(objectKey, result.audio)
 
-        const rec = await audioRepo.insert({
+        const { rec } = await audioRepo.insert({
           userId,
           textHash: hash,
           text: cleanText,
@@ -263,6 +383,10 @@ export function buildServer(): McpServer {
           objectKey,
           durationSec: result.durationSec,
           charCount: result.charCount,
+          status: 'ready',
+          chunksTotal: null,
+          chunksDone: 0,
+          errorMessage: null,
         })
 
         // Usage is recorded for everyone (cost visibility); only non-exempt
@@ -385,9 +509,46 @@ export function buildServer(): McpServer {
         const userId = userIdFrom(extra as ToolExtra)
         const rec = await audioRepo.getById(userId, id)
         if (!rec) return errorResult(new Error('Audio not found'))
+        if (rec.status !== 'ready') return errorResult(new Error('Audio not ready'))
         const payload = await playerPayload(rec, true)
         return {
           content: [{ type: 'text' as const, text: `Playback URL refreshed for "${rec.title}".` }],
+          structuredContent: payload,
+        }
+      } catch (err) {
+        return errorResult(err)
+      }
+    },
+  )
+
+  registerAppTool(
+    server,
+    'get_audio_status',
+    {
+      description: 'Check generation progress for an audio (app-internal, polled by the player).',
+      inputSchema: { id: z.string().describe('Audio id') },
+      outputSchema: statusPayloadShape,
+      annotations: { readOnlyHint: true },
+      _meta: { ui: { resourceUri: PLAYER_URI, visibility: ['app'] } },
+    },
+    async ({ id }, extra) => {
+      try {
+        const userId = userIdFrom(extra as ToolExtra)
+        let rec = await audioRepo.getById(userId, id)
+        if (!rec) return errorResult(new Error('Audio not found'))
+        // Lazy janitor: flips generations stuck in 'processing' to 'error'.
+        rec = await audioRepo.resolveStale(rec)
+        const payload: StatusPayload = {
+          kind: 'status',
+          id: rec.id,
+          status: rec.status,
+          chunksDone: rec.chunksDone,
+          chunksTotal: rec.chunksTotal ?? 0,
+          error: rec.errorMessage,
+          audio: rec.status === 'ready' ? await playerPayload(rec, false) : null,
+        }
+        return {
+          content: [{ type: 'text' as const, text: `"${rec.title}" is ${rec.status}.` }],
           structuredContent: payload,
         }
       } catch (err) {

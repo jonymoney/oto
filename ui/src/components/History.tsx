@@ -181,10 +181,28 @@ function HistoryRow({
 }: HistoryRowProps) {
   return (
     <li className="oto-row" data-active={active}>
-      <button type="button" className="oto-row-main" onClick={onPlay} disabled={busy || deleting}>
+      <button
+        type="button"
+        className="oto-row-main"
+        onClick={onPlay}
+        // Dead rows aren't playable; processing rows open the render view.
+        disabled={busy || deleting || item.status === 'error'}
+      >
         <span className="oto-row-title">{item.title}</span>
         <span className="oto-row-sub">
-          {item.voice} · {relativeDate(item.createdAt)} · {formatTimecode(item.durationSec)}
+          {item.voice} · {relativeDate(item.createdAt)} ·{' '}
+          {item.status === 'processing' ? (
+            <span className="oto-row-state" data-state="processing">
+              <span className="oto-status-dot" aria-hidden="true" />
+              rendering
+            </span>
+          ) : item.status === 'error' ? (
+            <span className="oto-row-state" data-state="error">
+              error
+            </span>
+          ) : (
+            formatTimecode(item.durationSec)
+          )}
         </span>
       </button>
       <span className="oto-row-actions">

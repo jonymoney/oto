@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
-import type { HistoryItem, HistoryPayload, PlayerPayload } from '../../src/types'
+import type { HistoryItem, HistoryPayload, PlayerPayload, StatusPayload } from '../../src/types'
 import { callTool, parseUiPayload, resultText } from './bridge'
 import type { UiPayload } from './bridge'
 import { useAudioEngine } from './useAudioEngine'
 import { PlayerView } from './components/Player'
 import { HistoryView } from './components/History'
 import type { HistoryStatus } from './components/History'
+import { ProcessingView } from './components/Processing'
+import type { ProcessingJob } from './components/Processing'
 import { VortexView } from './components/Vortex'
 
 const PAGE_SIZE = 20
+const POLL_MS = 2_500
+// Transient transport hiccups are tolerated for this many consecutive polls.
+const MAX_POLL_FAILURES = 4
 
-type View = 'boot' | 'player' | 'history' | 'vortex' | 'closed'
+type View = 'boot' | 'player' | 'history' | 'processing' | 'vortex' | 'closed'
 type Theme = 'light' | 'dark'
 
 function systemTheme(): Theme {
@@ -27,6 +32,8 @@ export function OtoApp() {
   const [view, setView] = useState<View>('boot')
   const [theme, setTheme] = useState<Theme>(systemTheme)
   const [track, setTrack] = useState<PlayerPayload | null>(null)
+  const [processing, setProcessing] = useState<ProcessingJob | null>(null)
+  const [readyPulse, setReadyPulse] = useState(false)
   const [history, setHistory] = useState<HistoryPayload | null>(null)
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>('idle')
   const [actionError, setActionError] = useState<string | null>(null)
@@ -62,6 +69,8 @@ export function OtoApp() {
   engineRef.current = engine
   const trackIdRef = useRef<string | null>(null)
   trackIdRef.current = track?.id ?? null
+  const processingRef = useRef(processing)
+  processingRef.current = processing
   // Where "eject" lands when the vortex closes.
   const vortexReturnRef = useRef<View>('history')
 
@@ -91,6 +100,17 @@ export function OtoApp() {
       setTrack(incoming)
       setView('player')
       engineRef.current.load(incoming)
+    } else if (incoming.kind === 'processing') {
+      setProcessing({
+        id: incoming.id,
+        title: incoming.title,
+        charCount: incoming.charCount,
+        chunksDone: incoming.chunksDone,
+        chunksTotal: incoming.chunksTotal,
+        error: null,
+        stalled: false,
+      })
+      setView('processing')
     } else if (incoming.kind === 'history') {
       setHistory(incoming)
       setHistoryStatus('idle')
@@ -99,6 +119,105 @@ export function OtoApp() {
       openVortex(incoming.seed)
     }
   }, [incoming, openVortex])
+
+  // Poll get_audio_status while the processing view is up. The loop stops on
+  // view change/unmount, idles while the tab is hidden, and only re-keys on
+  // identity/terminal fields — chunk counts update inside the closure, so
+  // putting them in the deps would restart the timer every poll.
+  useEffect(() => {
+    if (view !== 'processing' || !app || !processing || processing.error || processing.stalled)
+      return
+    const id = processing.id
+    let cancelled = false
+    let timer = 0
+    let failures = 0
+
+    const isHidden = () => {
+      try {
+        return document.hidden
+      } catch {
+        return false
+      }
+    }
+
+    const markHistory = (patch: Partial<HistoryItem>) =>
+      setHistory(prev =>
+        prev
+          ? { ...prev, items: prev.items.map(i => (i.id === id ? { ...i, ...patch } : i)) }
+          : prev,
+      )
+
+    const tick = async () => {
+      if (cancelled) return
+      if (isHidden()) {
+        timer = window.setTimeout(() => void tick(), POLL_MS)
+        return
+      }
+      try {
+        const status = await callTool<StatusPayload>(app, 'get_audio_status', { id })
+        if (cancelled) return
+        failures = 0
+        if (status.status === 'ready' && status.audio) {
+          const audio = status.audio
+          setProcessing(null)
+          markHistory({ status: 'ready', durationSec: audio.durationSec })
+          setTrack(audio)
+          setView('player')
+          setReadyPulse(true)
+          // Deliberately no autoplay — the arriving track waits for the play button.
+          engineRef.current.load(audio)
+          return
+        }
+        if (status.status !== 'processing') {
+          // 'error', or a malformed 'ready' without audio: the row is dead.
+          setProcessing(p => (p?.id === id ? { ...p, error: status.error ?? 'Generation failed' } : p))
+          markHistory({ status: 'error' })
+          return
+        }
+        setProcessing(p =>
+          p?.id === id ? { ...p, chunksDone: status.chunksDone, chunksTotal: status.chunksTotal } : p,
+        )
+      } catch {
+        if (cancelled) return
+        failures += 1
+        if (failures >= MAX_POLL_FAILURES) {
+          setProcessing(p => (p?.id === id ? { ...p, stalled: true } : p))
+          return
+        }
+      }
+      timer = window.setTimeout(() => void tick(), POLL_MS)
+    }
+
+    const onVisibility = () => {
+      if (cancelled || isHidden()) return
+      window.clearTimeout(timer)
+      void tick()
+    }
+
+    void tick()
+    // visibilitychange may be unavailable in the sandbox — degrade to plain polling.
+    try {
+      document.addEventListener('visibilitychange', onVisibility)
+    } catch {
+      // ignore
+    }
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      try {
+        document.removeEventListener('visibilitychange', onVisibility)
+      } catch {
+        // ignore
+      }
+    }
+  }, [view, app, processing?.id, processing?.error, processing?.stalled])
+
+  // Brief amber pulse on the player chassis when a background render arrives.
+  useEffect(() => {
+    if (!readyPulse) return
+    const timer = window.setTimeout(() => setReadyPulse(false), 1_600)
+    return () => window.clearTimeout(timer)
+  }, [readyPulse])
 
   const fetchHistory = useCallback(
     async (offset: number) => {
@@ -138,7 +257,8 @@ export function OtoApp() {
 
   const exitVortex = useCallback(() => {
     const back = vortexReturnRef.current
-    if (back === 'player' && trackIdRef.current) setView('player')
+    if (back === 'processing' && processingRef.current) setView('processing')
+    else if (back === 'player' && trackIdRef.current) setView('player')
     else if (back === 'closed') setView('closed')
     else if (back === 'history') openHistory()
     // Arrived straight from boot (server-driven vortex): land somewhere sane.
@@ -149,6 +269,27 @@ export function OtoApp() {
   const playItem = useCallback(
     async (item: HistoryItem) => {
       if (!app || rowBusyId) return
+      if (item.status === 'processing') {
+        // Still rendering — show its progress instead of trying to play.
+        // Chunk counts are unknown until the first poll; keep an existing job
+        // for the same id so progress (or a terminal error) isn't reset.
+        setProcessing(prev =>
+          prev?.id === item.id
+            ? prev
+            : {
+                id: item.id,
+                title: item.title,
+                charCount: item.charCount,
+                chunksDone: 0,
+                chunksTotal: 0,
+                error: null,
+                stalled: false,
+              },
+        )
+        setView('processing')
+        return
+      }
+      if (item.status === 'error') return
       setRowBusyId(item.id)
       setActionError(null)
       try {
@@ -181,6 +322,7 @@ export function OtoApp() {
           engineRef.current.unload()
           setTrack(null)
         }
+        if (processingRef.current?.id === id) setProcessing(null)
       } catch {
         setActionError('Delete failed — the recording is untouched')
       } finally {
@@ -190,13 +332,27 @@ export function OtoApp() {
     [app, deletingId],
   )
 
+  // Terminal-error affordance: drop the dead row and land in the archive.
+  const discardProcessing = useCallback(() => {
+    const id = processingRef.current?.id
+    setProcessing(null)
+    openHistory()
+    if (id) void deleteItem(id)
+  }, [deleteItem, openHistory])
+
+  const retryPolling = useCallback(() => {
+    // Clearing `stalled` re-keys the polling effect, which resumes the loop.
+    setProcessing(p => (p?.stalled ? { ...p, stalled: false } : p))
+  }, [])
+
   const closeWidget = useCallback(() => {
     engineRef.current.pause()
     setView('closed')
   }, [])
 
   const reopen = useCallback(() => {
-    setView(trackIdRef.current ? 'player' : 'history')
+    if (processingRef.current) setView('processing')
+    else setView(trackIdRef.current ? 'player' : 'history')
   }, [])
 
   const backToPlayer = useCallback(() => setView('player'), [])
@@ -224,9 +380,20 @@ export function OtoApp() {
       <BootSkeleton />
     )
   } else if (view === 'closed') {
-    body = <ClosedPill title={track?.title ?? 'archive'} onOpen={reopen} />
+    body = <ClosedPill title={processing?.title ?? track?.title ?? 'archive'} onOpen={reopen} />
   } else if (view === 'vortex') {
     body = <VortexView seed={vortexSeed} playing={engine.state.playing} onExit={exitVortex} />
+  } else if (view === 'processing' && processing) {
+    body = (
+      <ProcessingView
+        job={processing}
+        onHistory={openHistory}
+        onClose={closeWidget}
+        onVortex={() => openVortex()}
+        onDiscard={discardProcessing}
+        onRetryPoll={retryPolling}
+      />
+    )
   } else if (view === 'history' || !track) {
     body = (
       <HistoryView
@@ -251,6 +418,7 @@ export function OtoApp() {
       <PlayerView
         track={track}
         engine={engine}
+        pulse={readyPulse}
         onClose={closeWidget}
         onHistory={openHistory}
         onVortex={() => openVortex()}

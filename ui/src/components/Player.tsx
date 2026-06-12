@@ -8,17 +8,19 @@ import { Waveform } from './Waveform'
 interface PlayerViewProps {
   track: PlayerPayload
   engine: AudioEngine
+  /** Brief amber chassis pulse when a background render just landed. */
+  pulse?: boolean
   onClose: () => void
   onHistory: () => void
   onVortex: () => void
 }
 
-export function PlayerView({ track, engine, onClose, onHistory, onVortex }: PlayerViewProps) {
+export function PlayerView({ track, engine, pulse = false, onClose, onHistory, onVortex }: PlayerViewProps) {
   const { state } = engine
   const duration = state.duration ?? track.durationSec
 
   return (
-    <section className="oto-panel" aria-label="oto audio player">
+    <section className="oto-panel" data-arrived={pulse} aria-label="oto audio player">
       <header className="oto-bar">
         <OtoMark ledOn={state.playing} onSecret={onVortex} />
         <span className="oto-bar-spacer" />

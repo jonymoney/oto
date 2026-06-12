@@ -1,5 +1,12 @@
+export type AudioStatus = 'processing' | 'ready' | 'error'
+
 /** A generated audio, as stored in Postgres. */
 export interface AudioRecord {
+  status: AudioStatus
+  /** Total OpenAI chunks for this generation (null for legacy/sync rows). */
+  chunksTotal: number | null
+  chunksDone: number
+  errorMessage: string | null
   id: string
   userId: string
   /** sha256 of `${model}|${voice}|${format}|${text}` — the generate-once dedup key. */
@@ -41,6 +48,30 @@ export type HistoryItem = {
   voice: string
   charCount: number
   createdAt: string
+  status: AudioStatus
+}
+
+/** structuredContent payload while a long generation runs in the background. */
+export type ProcessingPayload = {
+  kind: 'processing'
+  id: string
+  title: string
+  charCount: number
+  chunksDone: number
+  chunksTotal: number
+  createdAt: string
+}
+
+/** get_audio_status result: progress, terminal error, or the ready audio. */
+export type StatusPayload = {
+  kind: 'status'
+  id: string
+  status: AudioStatus
+  chunksDone: number
+  chunksTotal: number
+  error: string | null
+  /** Present iff status === 'ready'. */
+  audio: PlayerPayload | null
 }
 
 /** structuredContent payload for the history view. */

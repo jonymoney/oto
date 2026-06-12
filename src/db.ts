@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import { config } from './config.js'
-import type { AudioRecord, NewAudio } from './types.js'
+import type { AudioRecord, AudioStatus, NewAudio } from './types.js'
 
 interface AudioRow {
   id: string
@@ -15,6 +15,10 @@ interface AudioRow {
   duration_sec: string | null
   char_count: number
   created_at: Date | string
+  status: AudioStatus
+  chunks_total: number | null
+  chunks_done: number
+  error_message: string | null
 }
 
 function mapRow(row: AudioRow): AudioRecord {
@@ -34,6 +38,10 @@ function mapRow(row: AudioRow): AudioRecord {
       row.created_at instanceof Date
         ? row.created_at.toISOString()
         : new Date(row.created_at).toISOString(),
+    status: row.status,
+    chunksTotal: row.chunks_total,
+    chunksDone: row.chunks_done,
+    errorMessage: row.error_message,
   }
 }
 
@@ -78,8 +86,22 @@ export async function initDb(): Promise<void> {
       duration_sec numeric,
       char_count   int not null,
       created_at   timestamptz not null default now(),
+      status        text not null default 'ready',
+      chunks_total  int,
+      chunks_done   int not null default 0,
+      error_message text,
+      updated_at    timestamptz not null default now(),
       unique (user_id, text_hash)
     )
+  `)
+  // Migrate the pre-async production table in place (no-ops on fresh installs).
+  await pool.query(`
+    alter table audios
+      add column if not exists status text not null default 'ready',
+      add column if not exists chunks_total int,
+      add column if not exists chunks_done int not null default 0,
+      add column if not exists error_message text,
+      add column if not exists updated_at timestamptz not null default now()
   `)
   await pool.query(`
     create index if not exists audios_user_id_created_at_idx
@@ -103,7 +125,7 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, voice, model, format, object_key, duration_sec, char_count, created_at'
+  'id, user_id, text_hash, text, title, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message'
 
 export const audioRepo = {
   async findByHash(userId: string, textHash: string): Promise<AudioRecord | null> {
@@ -114,11 +136,17 @@ export const audioRepo = {
     return rows[0] ? mapRow(rows[0]) : null
   },
 
-  async insert(audio: NewAudio): Promise<AudioRecord> {
+  /**
+   * Inserts the audio row, or returns the existing one on a generate-once
+   * conflict. `created` tells the caller whether it owns the row — only the
+   * creator may start a background job (prevents double generation/charging).
+   */
+  async insert(audio: NewAudio): Promise<{ rec: AudioRecord; created: boolean }> {
     const { rows } = await pool.query<AudioRow>(
       `insert into audios
-         (user_id, text_hash, text, title, voice, model, format, object_key, duration_sec, char_count)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (user_id, text_hash, text, title, voice, model, format, object_key, duration_sec, char_count,
+          status, chunks_total, chunks_done, error_message)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        on conflict (user_id, text_hash) do nothing
        returning ${COLUMNS}`,
       [
@@ -132,9 +160,13 @@ export const audioRepo = {
         audio.objectKey,
         audio.durationSec,
         audio.charCount,
+        audio.status,
+        audio.chunksTotal,
+        audio.chunksDone,
+        audio.errorMessage,
       ],
     )
-    if (rows[0]) return mapRow(rows[0])
+    if (rows[0]) return { rec: mapRow(rows[0]), created: true }
     // Lost a generate-once race: another request inserted the same
     // (user_id, text_hash) first — return that row.
     const existing = await this.findByHash(audio.userId, audio.textHash)
@@ -143,7 +175,7 @@ export const audioRepo = {
         `audios insert conflicted but no row found for user ${audio.userId}, hash ${audio.textHash}`,
       )
     }
-    return existing
+    return { rec: existing, created: false }
   },
 
   async getById(userId: string, id: string): Promise<AudioRecord | null> {
@@ -185,6 +217,48 @@ export const audioRepo = {
       [userId, id],
     )
     return rows[0] ? mapRow(rows[0]) : null
+  },
+
+  async markChunkDone(id: string): Promise<void> {
+    await pool.query(
+      'update audios set chunks_done = chunks_done + 1, updated_at = now() where id = $1',
+      [id],
+    )
+  },
+
+  async markReady(id: string, durationSec: number | null): Promise<void> {
+    await pool.query(
+      `update audios
+          set status = 'ready', duration_sec = $2, error_message = null, updated_at = now()
+        where id = $1`,
+      [id, durationSec],
+    )
+  },
+
+  async markError(id: string, message: string): Promise<void> {
+    await pool.query(
+      `update audios set status = 'error', error_message = $2, updated_at = now() where id = $1`,
+      [id, message],
+    )
+  },
+
+  /**
+   * Lazy janitor: a row still 'processing' 15+ minutes after its last progress
+   * update is presumed dead (job crashed or the process restarted). Flips it to
+   * 'error' atomically — the WHERE re-checks status/updated_at so a live job
+   * can't be clobbered — and returns the updated row, or `rec` unchanged.
+   */
+  async resolveStale(rec: AudioRecord): Promise<AudioRecord> {
+    if (rec.status !== 'processing') return rec
+    const { rows } = await pool.query<AudioRow>(
+      `update audios
+          set status = 'error', error_message = 'generation timed out', updated_at = now()
+        where id = $1 and status = 'processing'
+          and updated_at < now() - interval '15 minutes'
+        returning ${COLUMNS}`,
+      [rec.id],
+    )
+    return rows[0] ? mapRow(rows[0]) : rec
   },
 }
 

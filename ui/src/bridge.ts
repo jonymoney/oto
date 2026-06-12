@@ -1,10 +1,15 @@
 import type { App } from '@modelcontextprotocol/ext-apps/react'
-import type { HistoryPayload, PlayerPayload, VortexPayload } from '../../src/types'
+import type {
+  HistoryPayload,
+  PlayerPayload,
+  ProcessingPayload,
+  VortexPayload,
+} from '../../src/types'
 
 export type ToolResult = Awaited<ReturnType<App['callServerTool']>>
 
 /** Any structuredContent payload oto knows how to render. */
-export type UiPayload = PlayerPayload | HistoryPayload | VortexPayload
+export type UiPayload = PlayerPayload | HistoryPayload | ProcessingPayload | VortexPayload
 
 /** First text block of a tool result — the error message on failed results. */
 export function resultText(result: ToolResult): string {
@@ -37,6 +42,7 @@ export function parseUiPayload(result: ToolResult): UiPayload | null {
   if (!sc) return null
   if (sc.kind === 'audio') return sc as unknown as PlayerPayload
   if (sc.kind === 'history') return sc as unknown as HistoryPayload
+  if (sc.kind === 'processing') return sc as unknown as ProcessingPayload
   if (sc.kind === 'vortex') return sc as unknown as VortexPayload
   return null
 }

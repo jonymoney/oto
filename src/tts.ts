@@ -79,6 +79,11 @@ export function chunkText(text: string, maxChars = 3800): string[] {
   return chunks
 }
 
+/** ~15 chars/sec of speech — fallback when the mp3 duration probe fails. */
+export function estimateSec(charCount: number): number {
+  return charCount / 15
+}
+
 export interface SynthesisResult {
   audio: Buffer
   durationSec: number | null
@@ -98,31 +103,66 @@ export async function synthesize(
   text: string,
   opts?: { voice?: string; instructions?: string },
 ): Promise<SynthesisResult> {
+  return synthesizeAll(text, opts ?? {})
+}
+
+/**
+ * Like synthesize(), but reports progress: onChunkDone fires as each parallel
+ * OpenAI chunk settles, with the count of finished chunks and the total.
+ */
+export async function synthesizeChunked(
+  text: string,
+  opts: {
+    voice?: string
+    instructions?: string
+    onChunkDone?: (done: number, total: number) => void
+  },
+): Promise<SynthesisResult> {
+  return synthesizeAll(text, opts)
+}
+
+async function synthesizeAll(
+  text: string,
+  opts: {
+    voice?: string
+    instructions?: string
+    onChunkDone?: (done: number, total: number) => void
+  },
+): Promise<SynthesisResult> {
   const input = text.trim()
   if (!input) throw new Error('Cannot synthesize speech from empty text')
 
   const model = config.TTS_MODEL
-  const voice = resolveVoice(opts?.voice)
-  const instructions = opts?.instructions?.trim()
+  const voice = resolveVoice(opts.voice)
+  const instructions = opts.instructions?.trim()
   const withInstructions = instructions && !MODELS_WITHOUT_INSTRUCTIONS.has(model)
 
-  // Chunks synthesize concurrently (order preserved by Promise.all) — the host
-  // gets zero bytes until the JSON response is complete, so wall-clock latency
-  // must stay well under client/edge timeouts.
+  const chunks = chunkText(input)
+  let done = 0
+
+  // Chunks synthesize concurrently (order preserved by Promise.all) — on the
+  // sync path the host gets zero bytes until the JSON response is complete, so
+  // wall-clock latency must stay well under client/edge timeouts.
   // Probe duration per chunk and sum: probing the concatenated buffer would report
   // only the first segment's length if it carries a Xing/LAME header.
   const parts = await Promise.all(
-    chunkText(input).map(async (chunk) => {
-      const response = await openai.audio.speech.create({
-        model,
-        voice,
-        input: chunk,
-        response_format: 'mp3',
-        ...(withInstructions ? { instructions } : {}),
-      })
-      const buffer = Buffer.from(await response.arrayBuffer())
-      return { buffer, duration: await probeDurationSec(buffer) }
-    }),
+    chunks.map((chunk) =>
+      (async () => {
+        const response = await openai.audio.speech.create({
+          model,
+          voice,
+          input: chunk,
+          response_format: 'mp3',
+          ...(withInstructions ? { instructions } : {}),
+        })
+        const buffer = Buffer.from(await response.arrayBuffer())
+        return { buffer, duration: await probeDurationSec(buffer) }
+      })().then((part) => {
+        done += 1
+        opts.onChunkDone?.(done, chunks.length)
+        return part
+      }),
+    ),
   )
 
   const buffers = parts.map((p) => p.buffer)
