@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>oto · connect</title>
+<style>
+  :root {
+    --bg: #14100d;
+    --card: #1e1813;
+    --line: #352b22;
+    --line-soft: #2a221b;
+    --ink: #f3ebe1;
+    --muted: #a3927f;
+    --faint: #79695a;
+    --amber: #e6a45c;
+    --amber-deep: #c97f35;
+    --danger: #e07856;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(60rem 40rem at 50% -12rem, rgba(230, 164, 92, 0.09), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 36px 32px 32px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 26px;
+  }
+  .brand svg { display: block; }
+  .brand .bar { fill: var(--amber); }
+  .brand .bar:nth-child(2) { fill: var(--amber-deep); }
+  .wordmark {
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    color: var(--ink);
+  }
+  .view h1 {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.45;
+    margin: 0 0 6px;
+  }
+  .view h1 b { color: var(--amber); font-weight: 650; }
+  .sub {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.55;
+    margin: 0 0 20px;
+  }
+  .sub a, .linkish {
+    color: var(--amber);
+    text-decoration: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+  .linkish:hover, .sub a:hover { text-decoration: underline; }
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 6px;
+  }
+  input {
+    width: 100%;
+    background: #161210;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    padding: 11px 13px;
+    margin-bottom: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus { border-color: var(--amber-deep); }
+  input::placeholder { color: var(--faint); }
+  .btn {
+    width: 100%;
+    border: 0;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s, opacity 0.15s;
+  }
+  .btn:disabled { opacity: 0.55; cursor: default; }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--amber), var(--amber-deep));
+    color: #1c130a;
+  }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.07); }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--faint); color: var(--ink); }
+  .actions { display: flex; gap: 10px; margin-top: 22px; }
+  .msg {
+    font-size: 13px;
+    line-height: 1.5;
+    border-radius: 10px;
+    padding: 10px 13px;
+    margin: 0 0 14px;
+    display: none;
+  }
+  .msg.show { display: block; }
+  .msg.error {
+    color: var(--danger);
+    background: rgba(224, 120, 86, 0.08);
+    border: 1px solid rgba(224, 120, 86, 0.25);
+  }
+  .msg.notice {
+    color: var(--amber);
+    background: rgba(230, 164, 92, 0.08);
+    border: 1px solid rgba(230, 164, 92, 0.22);
+  }
+  .toggle-row {
+    margin: 16px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .scopes {
+    list-style: none;
+    margin: 0;
+    padding: 14px 16px;
+    background: #181310;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+  }
+  .scopes li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--ink);
+    line-height: 1.5;
+    padding: 4px 0;
+  }
+  .scopes li::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    transform: translateY(-2px);
+  }
+  .scopes .raw {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .identity {
+    margin: 16px 0 0;
+    font-size: 12.5px;
+    color: var(--faint);
+  }
+  .identity b { color: var(--muted); font-weight: 500; }
+  .client-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    object-fit: cover;
+    margin-bottom: 14px;
+    display: block;
+  }
+  .spinner {
+    width: 26px;
+    height: 26px;
+    margin: 6px 0 16px;
+    border: 2.5px solid var(--line);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card">
+  <header class="brand" aria-label="oto">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      <rect class="bar" x="2"  y="7"  width="4" height="8"  rx="2"/>
+      <rect class="bar" x="9"  y="3"  width="4" height="16" rx="2"/>
+      <rect class="bar" x="16" y="9"  width="4" height="4"  rx="2"/>
+    </svg>
+    <span class="wordmark">oto</span>
+  </header>
+
+  <section id="view-loading" class="view">
+    <div class="spinner" role="status" aria-label="Loading"></div>
+    <p class="sub" id="loading-text">Loading…</p>
+  </section>
+
+  <section id="view-error" class="view" hidden>
+    <h1>Something went wrong</h1>
+    <p class="sub" id="error-text"></p>
+    <p class="sub" id="error-hint" hidden>You can close this tab and start the connection again from your app.</p>
+  </section>
+
+  <section id="view-auth" class="view" hidden>
+    <h1 id="auth-title">Sign in to continue</h1>
+    <p class="sub">An application is asking to connect to your oto account.</p>
+    <div class="msg" id="auth-msg"></div>
+    <form id="auth-form">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required placeholder="you@example.com">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
+      <button class="btn btn-primary" id="auth-submit" type="submit">Sign in</button>
+    </form>
+    <p class="toggle-row" id="toggle-row">
+      New to oto? <button class="linkish" id="auth-toggle" type="button">Create an account</button>
+    </p>
+  </section>
+
+  <section id="view-consent" class="view" hidden>
+    <img class="client-logo" id="client-logo" alt="" hidden>
+    <h1><b id="client-name">An application</b> wants access to your oto account</h1>
+    <p class="sub">It will be able to:</p>
+    <div class="msg" id="consent-msg"></div>
+    <ul class="scopes" id="scope-list"></ul>
+    <div class="actions">
+      <button class="btn btn-ghost" id="btn-deny" type="button">Deny</button>
+      <button class="btn btn-primary" id="btn-approve" type="button">Approve</button>
+    </div>
+    <p class="identity">Signed in as <b id="user-email"></b> · <button class="linkish" id="btn-signout" type="button">switch account</button></p>
+  </section>
+
+  <section id="view-redirect" class="view" hidden>
+    <div class="spinner" role="status" aria-label="Redirecting"></div>
+    <p class="sub">Returning you to the app…</p>
+  </section>
+</main>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const SUPABASE_URL = '__SUPABASE_URL__'
+const SUPABASE_PUBLISHABLE_KEY = '__SUPABASE_PUBLISHABLE_KEY__'
+
+const $ = (id) => document.getElementById(id)
+const views = ['view-loading', 'view-error', 'view-auth', 'view-consent', 'view-redirect']
+
+function show(viewId) {
+  for (const id of views) $(id).hidden = id !== viewId
+}
+
+function setMsg(el, kind, text) {
+  el.className = text ? `msg show ${kind}` : 'msg'
+  el.textContent = text || ''
+}
+
+function showError(text, { recoverable = true } = {}) {
+  $('error-text').textContent = text
+  $('error-hint').hidden = !recoverable
+  show('view-error')
+}
+
+function redirectTo(url) {
+  show('view-redirect')
+  window.location.assign(url)
+}
+
+const SCOPE_DESCRIPTIONS = {
+  openid: 'Confirm who you are',
+  email: 'See your email address',
+  profile: 'See your basic profile',
+  offline_access: 'Stay connected without asking you again',
+}
+
+function friendlyAuthError(error, mode) {
+  const code = error?.code || ''
+  const message = error?.message || 'Authentication failed.'
+  if (code === 'email_not_confirmed' || /email not confirmed/i.test(message)) {
+    return 'Your email address has not been confirmed yet. Open the confirmation link we emailed you, then sign in again.'
+  }
+  if (code === 'invalid_credentials' || /invalid login credentials/i.test(message)) {
+    return 'Wrong email or password. If you are new here, create an account instead.'
+  }
+  if (code === 'user_already_exists' || /already registered/i.test(message)) {
+    return 'An account with this email already exists — sign in instead.'
+  }
+  if (code === 'weak_password') {
+    return 'That password is too weak. Use at least 6 characters.'
+  }
+  if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit') {
+    return 'Too many attempts. Wait a minute and try again.'
+  }
+  return mode === 'signup' ? `Could not create the account: ${message}` : `Could not sign in: ${message}`
+}
+
+const authorizationId = new URLSearchParams(window.location.search).get('authorization_id')
+const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+
+let authMode = 'signin'
+
+function setAuthMode(mode) {
+  authMode = mode
+  const signin = mode === 'signin'
+  $('auth-title').textContent = signin ? 'Sign in to continue' : 'Create your oto account'
+  $('auth-submit').textContent = signin ? 'Sign in' : 'Create account'
+  $('auth-toggle').textContent = signin ? 'Create an account' : 'Sign in'
+  $('toggle-row').firstChild.textContent = signin ? 'New to oto? ' : 'Already have an account? '
+  $('password').autocomplete = signin ? 'current-password' : 'new-password'
+}
+
+$('auth-toggle').addEventListener('click', () => {
+  setMsg($('auth-msg'))
+  setAuthMode(authMode === 'signin' ? 'signup' : 'signin')
+})
+
+$('auth-form').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const email = $('email').value.trim()
+  const password = $('password').value
+  const submit = $('auth-submit')
+  setMsg($('auth-msg'))
+  submit.disabled = true
+  try {
+    if (authMode === 'signup') {
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      if (error) {
+        setMsg($('auth-msg'), 'error', friendlyAuthError(error, 'signup'))
+        return
+      }
+      if (!data.session) {
+        // Email confirmation required: no session until the link is clicked.
+        setAuthMode('signin')
+        setMsg($('auth-msg'), 'notice', `We sent a confirmation link to ${email}. Open it, then sign in here to continue.`)
+        return
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        setMsg($('auth-msg'), 'error', friendlyAuthError(error, 'signin'))
+        return
+      }
+    }
+    await loadAuthorization()
+  } finally {
+    submit.disabled = false
+  }
+})
+
+function renderConsent(details) {
+  $('client-name').textContent = details.client?.name || 'An application'
+  const logo = $('client-logo')
+  if (details.client?.logo_uri) {
+    logo.onerror = () => { logo.hidden = true }
+    logo.src = details.client.logo_uri
+    logo.hidden = false
+  } else {
+    logo.hidden = true
+  }
+  $('user-email').textContent = details.user?.email || ''
+
+  const list = $('scope-list')
+  list.textContent = ''
+  const scopes = (details.scope || '').split(/\s+/).filter(Boolean)
+  const lines = scopes.length
+    ? scopes.map((s) => ({ text: SCOPE_DESCRIPTIONS[s] || s, raw: !SCOPE_DESCRIPTIONS[s] }))
+    : [{ text: 'Use your oto account on your behalf', raw: false }]
+  for (const line of lines) {
+    const li = document.createElement('li')
+    const span = document.createElement('span')
+    if (line.raw) span.className = 'raw'
+    span.textContent = line.text
+    li.appendChild(span)
+    list.appendChild(li)
+  }
+
+  setMsg($('consent-msg'))
+  $('btn-approve').disabled = false
+  $('btn-deny').disabled = false
+  show('view-consent')
+}
+
+async function loadAuthorization() {
+  show('view-loading')
+  $('loading-text').textContent = 'Loading authorization request…'
+  const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId)
+  if (error) {
+    if (error.name === 'AuthSessionMissingError') {
+      show('view-auth')
+      return
+    }
+    showError(`Could not load the authorization request: ${error.message}`)
+    return
+  }
+  if (!('authorization_id' in data)) {
+    // Consent was already granted — Supabase returns only the redirect URL.
+    redirectTo(data.redirect_url)
+    return
+  }
+  renderConsent(data)
+}
+
+async function decide(action) {
+  $('btn-approve').disabled = true
+  $('btn-deny').disabled = true
+  setMsg($('consent-msg'))
+  const call = action === 'approve'
+    ? supabase.auth.oauth.approveAuthorization(authorizationId, { skipBrowserRedirect: true })
+    : supabase.auth.oauth.denyAuthorization(authorizationId, { skipBrowserRedirect: true })
+  const { data, error } = await call
+  if (error) {
+    setMsg($('consent-msg'), 'error', `Could not ${action} the request: ${error.message}`)
+    $('btn-approve').disabled = false
+    $('btn-deny').disabled = false
+    return
+  }
+  redirectTo(data.redirect_url)
+}
+
+$('btn-approve').addEventListener('click', () => decide('approve'))
+$('btn-deny').addEventListener('click', () => decide('deny'))
+$('btn-signout').addEventListener('click', async () => {
+  await supabase.auth.signOut()
+  setMsg($('auth-msg'))
+  setAuthMode('signin')
+  show('view-auth')
+})
+
+async function init() {
+  if (!authorizationId) {
+    showError(
+      'This page handles app connection requests, but no authorization request was found in the link. Start the connection again from your app (for example, by adding oto as a connector in Claude).',
+      { recoverable: false }
+    )
+    return
+  }
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) {
+    show('view-auth')
+    return
+  }
+  await loadAuthorization()
+}
+
+init()
+</script>
+</body>
+</html>
