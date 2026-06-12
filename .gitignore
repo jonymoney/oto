@@ -6,6 +6,8 @@
 # Local tool config — may contain project refs/tokens
 .mcp.json
 .claude/settings.local.json
+CLAUDE.md
+CLAUDE.local.md
 
 # Dependencies
 node_modules/
