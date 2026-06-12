@@ -240,12 +240,17 @@
     <form id="auth-form">
       <label for="email">Email</label>
       <input id="email" type="email" autocomplete="email" required placeholder="you@example.com">
-      <label for="password">Password</label>
-      <input id="password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
-      <button class="btn btn-primary" id="auth-submit" type="submit">Sign in</button>
+      <div id="password-field" hidden>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" disabled minlength="6" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary" id="auth-submit" type="submit">Send magic link</button>
     </form>
     <p class="toggle-row" id="toggle-row">
-      New to oto? <button class="linkish" id="auth-toggle" type="button">Create an account</button>
+      Prefer a password? <button class="linkish" id="auth-toggle" type="button">Sign in with password</button>
+    </p>
+    <p class="toggle-row" id="magic-row" hidden>
+      <button class="linkish" id="magic-toggle" type="button">Email me a magic link instead</button>
     </p>
   </section>
 
@@ -319,30 +324,69 @@ function friendlyAuthError(error, mode) {
   if (code === 'weak_password') {
     return 'That password is too weak. Use at least 6 characters.'
   }
-  if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit') {
-    return 'Too many attempts. Wait a minute and try again.'
+  if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit' || error?.status === 429) {
+    return mode === 'magic'
+      ? 'A link was sent to this address very recently. Wait a minute before requesting another one.'
+      : 'Too many attempts. Wait a minute and try again.'
   }
+  if (mode === 'magic') return `Could not send the sign-in link: ${message}`
   return mode === 'signup' ? `Could not create the account: ${message}` : `Could not sign in: ${message}`
 }
 
 const authorizationId = new URLSearchParams(window.location.search).get('authorization_id')
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
 
-let authMode = 'signin'
+let authMode = 'magic'
+
+const RESEND_COOLDOWN_SECONDS = 60
+let resendTimer = null
+
+function startResendCountdown(button) {
+  // Supabase rate-limits OTP emails per address, so hold the button
+  // for a cooldown before offering a resend.
+  let remaining = RESEND_COOLDOWN_SECONDS
+  button.disabled = true
+  button.textContent = `Resend in ${remaining}s`
+  clearInterval(resendTimer)
+  resendTimer = setInterval(() => {
+    remaining -= 1
+    if (remaining > 0) {
+      button.textContent = `Resend in ${remaining}s`
+      return
+    }
+    clearInterval(resendTimer)
+    resendTimer = null
+    button.disabled = false
+    button.textContent = 'Resend magic link'
+  }, 1000)
+}
 
 function setAuthMode(mode) {
   authMode = mode
+  const magic = mode === 'magic'
   const signin = mode === 'signin'
-  $('auth-title').textContent = signin ? 'Sign in to continue' : 'Create your oto account'
-  $('auth-submit').textContent = signin ? 'Sign in' : 'Create account'
-  $('auth-toggle').textContent = signin ? 'Create an account' : 'Sign in'
-  $('toggle-row').firstChild.textContent = signin ? 'New to oto? ' : 'Already have an account? '
-  $('password').autocomplete = signin ? 'current-password' : 'new-password'
+  clearInterval(resendTimer)
+  resendTimer = null
+  $('auth-title').textContent = mode === 'signup' ? 'Create your oto account' : 'Sign in to continue'
+  $('auth-submit').textContent = magic ? 'Send magic link' : signin ? 'Sign in' : 'Create account'
+  $('auth-submit').disabled = false
+  $('password-field').hidden = magic
+  $('password').disabled = magic
+  $('password').required = !magic
+  $('password').autocomplete = mode === 'signup' ? 'new-password' : 'current-password'
+  $('auth-toggle').textContent = magic ? 'Sign in with password' : signin ? 'Create an account' : 'Sign in'
+  $('toggle-row').firstChild.textContent = magic ? 'Prefer a password? ' : signin ? 'New to oto? ' : 'Already have an account? '
+  $('magic-row').hidden = magic
 }
 
 $('auth-toggle').addEventListener('click', () => {
   setMsg($('auth-msg'))
   setAuthMode(authMode === 'signin' ? 'signup' : 'signin')
+})
+
+$('magic-toggle').addEventListener('click', () => {
+  setMsg($('auth-msg'))
+  setAuthMode('magic')
 })
 
 $('auth-form').addEventListener('submit', async (event) => {
@@ -353,6 +397,22 @@ $('auth-form').addEventListener('submit', async (event) => {
   setMsg($('auth-msg'))
   submit.disabled = true
   try {
+    if (authMode === 'magic') {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        // The emailed link returns the user to this exact consent URL
+        // (authorization_id included); shouldCreateUser makes first-time
+        // sign-ups implicit, so no separate account step is needed.
+        options: { emailRedirectTo: window.location.href, shouldCreateUser: true },
+      })
+      if (error) {
+        setMsg($('auth-msg'), 'error', friendlyAuthError(error, 'magic'))
+        return
+      }
+      setMsg($('auth-msg'), 'notice', `Check your email — the sign-in link we sent to ${email} brings you straight back here to continue.`)
+      startResendCountdown(submit)
+      return
+    }
     if (authMode === 'signup') {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -380,7 +440,8 @@ $('auth-form').addEventListener('submit', async (event) => {
     }
     await loadAuthorization()
   } finally {
-    submit.disabled = false
+    // Leave the button held while a resend countdown is running.
+    if (!resendTimer) submit.disabled = false
   }
 })
 
@@ -459,7 +520,7 @@ $('btn-deny').addEventListener('click', () => decide('deny'))
 $('btn-signout').addEventListener('click', async () => {
   await supabase.auth.signOut()
   setMsg($('auth-msg'))
-  setAuthMode('signin')
+  setAuthMode('magic')
   show('view-auth')
 })
 
@@ -471,6 +532,10 @@ async function init() {
     )
     return
   }
+  // When the user returns via the emailed magic link, detectSessionInUrl
+  // (on by default in browsers) consumes the tokens from the URL during
+  // client initialization. getSession() awaits that internally, so this
+  // resolves with the fresh session and proceeds straight to consent.
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) {
     show('view-auth')
