@@ -354,7 +354,13 @@ $('auth-form').addEventListener('submit', async (event) => {
   submit.disabled = true
   try {
     if (authMode === 'signup') {
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        // The confirmation link returns the user to this exact consent URL
+        // (authorization_id included) instead of the bare Site URL.
+        options: { emailRedirectTo: window.location.href },
+      })
       if (error) {
         setMsg($('auth-msg'), 'error', friendlyAuthError(error, 'signup'))
         return

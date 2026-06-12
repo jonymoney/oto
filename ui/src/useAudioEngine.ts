@@ -81,6 +81,16 @@ export function useAudioEngine(app: App | null): AudioEngine {
     }
   }, [])
 
+  // Autoplay can be vetoed (NotAllowedError) on hosts that require a fresh
+  // user gesture — common after an awaited get_audio_url round-trip. Settle
+  // into a clean loaded+paused state so the play button is the affordance;
+  // no error banner. Real media failures arrive via the 'error' event.
+  const settleRejectedPlay = useCallback((err: unknown) => {
+    if ((err as DOMException | null)?.name === 'NotAllowedError') {
+      setState(s => ({ ...s, playing: false, busy: false, error: null }))
+    }
+  }, [])
+
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
@@ -106,7 +116,7 @@ export function useAudioEngine(app: App | null): AudioEngine {
             // not seekable yet — start over rather than fail
           }
         }
-        if (pending.play) void audio.play().catch(() => {})
+        if (pending.play) void audio.play().catch(settleRejectedPlay)
       }
       setState(s => ({ ...s, busy: false }))
     }
@@ -149,7 +159,7 @@ export function useAudioEngine(app: App | null): AudioEngine {
       audio.removeEventListener('playing', onReady)
       audio.removeEventListener('error', onError)
     }
-  }, [recover])
+  }, [recover, settleRejectedPlay])
 
   // Pause when a sibling oto instance starts playing.
   useEffect(() => onOtherPlayback(() => audioRef.current?.pause()), [])
@@ -172,8 +182,8 @@ export function useAudioEngine(app: App | null): AudioEngine {
     audio.load()
     // play() during load is fine — the browser starts as soon as it can,
     // and calling it synchronously keeps the user-activation grant.
-    if (opts?.autoplay) void audio.play().catch(() => {})
-  }, [])
+    if (opts?.autoplay) void audio.play().catch(settleRejectedPlay)
+  }, [settleRejectedPlay])
 
   const unload = useCallback(() => {
     trackRef.current = null

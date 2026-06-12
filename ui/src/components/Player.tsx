@@ -2,6 +2,7 @@ import type { PlayerPayload } from '../../../src/types'
 import { formatTimecode, relativeDate } from '../format'
 import type { AudioEngine } from '../useAudioEngine'
 import { PauseIcon, PlayIcon } from './Icons'
+import { OtoMark } from './Mark'
 import { Waveform } from './Waveform'
 
 interface PlayerViewProps {
@@ -9,19 +10,17 @@ interface PlayerViewProps {
   engine: AudioEngine
   onClose: () => void
   onHistory: () => void
+  onVortex: () => void
 }
 
-export function PlayerView({ track, engine, onClose, onHistory }: PlayerViewProps) {
+export function PlayerView({ track, engine, onClose, onHistory, onVortex }: PlayerViewProps) {
   const { state } = engine
   const duration = state.duration ?? track.durationSec
 
   return (
     <section className="oto-panel" aria-label="oto audio player">
       <header className="oto-bar">
-        <span className="oto-mark">
-          <span className="oto-led" data-on={state.playing} />
-          oto
-        </span>
+        <OtoMark ledOn={state.playing} onSecret={onVortex} />
         <span className="oto-bar-spacer" />
         <button type="button" className="oto-ghost" onClick={onHistory}>
           history

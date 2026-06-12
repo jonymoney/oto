@@ -14,6 +14,28 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'oto' })
 })
 
+// Landing for the bare domain: where Site-URL fallbacks and curious visitors end up.
+const landingHtml = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>oto — text to speech for your AI chats</title>
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16130f;color:#e8e0d4;
+       font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}
+  main{padding:2rem;max-width:34rem}
+  h1{font-size:1.6rem;letter-spacing:.04em;margin:0 0 .75rem}
+  .led{color:#f5a623}
+  p{line-height:1.6;color:#b8ad9c;font-size:.92rem}
+  code{background:#241f18;padding:.15rem .45rem;border-radius:4px;color:#e8e0d4}
+</style></head><body><main>
+  <h1><span class="led">◉</span> oto</h1>
+  <p>Text to speech inside your AI chat. Generated once, kept forever.</p>
+  <p>Connect it in Claude as a custom connector:<br><code>${config.MCP_SERVER_URL}</code></p>
+  <p>Just confirmed your email? Head back to your chat and reconnect — sign-in will pick up where you left off.</p>
+</main></body></html>`
+app.get('/', (_req, res) => {
+  res.type('html').send(landingHtml)
+})
+
 app.use(wellKnownRouter())
 app.use(consentRouter())
 

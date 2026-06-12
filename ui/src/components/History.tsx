@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { HistoryItem, HistoryPayload } from '../../../src/types'
 import { formatTimecode, relativeDate } from '../format'
 import { TrashIcon } from './Icons'
+import { OtoMark } from './Mark'
 
 const CONFIRM_TIMEOUT_MS = 4_000
 
@@ -21,6 +22,7 @@ interface HistoryViewProps {
   onDelete: (id: string) => void
   onLoadMore: () => void
   onRetry: () => void
+  onVortex: () => void
 }
 
 export function HistoryView({
@@ -37,6 +39,7 @@ export function HistoryView({
   onDelete,
   onLoadMore,
   onRetry,
+  onVortex,
 }: HistoryViewProps) {
   // Two-step delete confirm (window.confirm is blocked in sandboxed iframes).
   const [armedId, setArmedId] = useState<string | null>(null)
@@ -103,16 +106,24 @@ export function HistoryView({
             />
           ))}
         </ul>
-        {remaining > 0 && (
-          <button
-            type="button"
-            className="oto-more"
-            onClick={onLoadMore}
-            disabled={status === 'loading-more'}
-          >
-            {status === 'loading-more' ? 'loading…' : `load more · ${remaining} left`}
-          </button>
-        )}
+        {remaining > 0 &&
+          (status === 'error' ? (
+            <div className="oto-error" role="alert">
+              <span>Couldn&rsquo;t load more</span>
+              <button type="button" className="oto-ghost" onClick={onLoadMore}>
+                retry
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="oto-more"
+              onClick={onLoadMore}
+              disabled={status === 'loading-more'}
+            >
+              {status === 'loading-more' ? 'loading…' : `load more · ${remaining} left`}
+            </button>
+          ))}
       </>
     )
   }
@@ -125,10 +136,7 @@ export function HistoryView({
             ‹ player
           </button>
         ) : (
-          <span className="oto-mark">
-            <span className="oto-led" />
-            oto
-          </span>
+          <OtoMark onSecret={onVortex} />
         )}
         <span className="oto-bar-spacer" />
         {history && <span className="oto-count">{history.total} saved</span>}

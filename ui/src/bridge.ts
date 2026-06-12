@@ -1,9 +1,13 @@
 import type { App } from '@modelcontextprotocol/ext-apps/react'
-import type { HistoryPayload, PlayerPayload } from '../../src/types'
+import type { HistoryPayload, PlayerPayload, VortexPayload } from '../../src/types'
 
 export type ToolResult = Awaited<ReturnType<App['callServerTool']>>
 
-function resultText(result: ToolResult): string {
+/** Any structuredContent payload oto knows how to render. */
+export type UiPayload = PlayerPayload | HistoryPayload | VortexPayload
+
+/** First text block of a tool result — the error message on failed results. */
+export function resultText(result: ToolResult): string {
   for (const block of result.content ?? []) {
     if (block.type === 'text') return block.text
   }
@@ -27,10 +31,12 @@ export async function callTool<T>(
 }
 
 /** Narrow a tool result's structuredContent to one of oto's UI payloads. */
-export function parseUiPayload(result: ToolResult): PlayerPayload | HistoryPayload | null {
+export function parseUiPayload(result: ToolResult): UiPayload | null {
+  if (result.isError) return null
   const sc = result.structuredContent as { kind?: unknown } | undefined
   if (!sc) return null
   if (sc.kind === 'audio') return sc as unknown as PlayerPayload
   if (sc.kind === 'history') return sc as unknown as HistoryPayload
+  if (sc.kind === 'vortex') return sc as unknown as VortexPayload
   return null
 }

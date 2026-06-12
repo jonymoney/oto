@@ -653,6 +653,12 @@ body {
   overflow-wrap: anywhere;
 }
 
+.oto-message .oto-more {
+  width: auto;
+  margin-top: 10px;
+  padding: 5px 16px;
+}
+
 .oto-boot-row {
   display: flex;
   align-items: center;
@@ -701,6 +707,70 @@ body {
   }
 }
 
+/* ───────────────────────── vortex (the instrument dreaming) ───────────────────────── */
+
+.oto-vortex-crt {
+  position: relative;
+  height: 300px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  /* a dark glass screen set into the chassis — same in both themes */
+  background: radial-gradient(120% 90% at 50% 44%, #1b150c 0%, #0d0b07 68%, #070604 100%);
+}
+
+.oto-vortex-screen {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 12px;
+  letter-spacing: 0;
+  /* phosphor amber, independent of theme — the hue pulse swings around it */
+  color: #ffb02e;
+  text-shadow: 0 0 5px rgba(255, 176, 46, 0.55), 0 0 18px rgba(255, 157, 10, 0.2);
+  user-select: none;
+  animation: oto-vortex-hue 11s ease-in-out infinite;
+  will-change: filter;
+}
+
+@keyframes oto-vortex-hue {
+  0%,
+  100% {
+    filter: hue-rotate(0deg) saturate(1);
+  }
+  38% {
+    filter: hue-rotate(-55deg) saturate(1.25);
+  }
+  72% {
+    filter: hue-rotate(70deg) saturate(1.1);
+  }
+}
+
+.oto-vortex-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgba(0, 0, 0, 0.16) 2px 3px
+  );
+  box-shadow: inset 0 0 42px rgba(0, 0, 0, 0.55);
+}
+
+@keyframes oto-vortex-breathe {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ───────────────────────── reduced motion ───────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -708,5 +778,10 @@ body {
   .oto *::after {
     animation: none !important;
     transition-duration: 0.01ms !important;
+  }
+
+  /* the vortex holds a single still frame with a gentle breathe instead */
+  .oto .oto-vortex-screen {
+    animation: oto-vortex-breathe 7s ease-in-out infinite alternate !important;
   }
 }

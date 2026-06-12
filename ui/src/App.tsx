@@ -2,15 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
 import type { HistoryItem, HistoryPayload, PlayerPayload } from '../../src/types'
-import { callTool, parseUiPayload } from './bridge'
+import { callTool, parseUiPayload, resultText } from './bridge'
+import type { UiPayload } from './bridge'
 import { useAudioEngine } from './useAudioEngine'
 import { PlayerView } from './components/Player'
 import { HistoryView } from './components/History'
 import type { HistoryStatus } from './components/History'
+import { VortexView } from './components/Vortex'
 
 const PAGE_SIZE = 20
 
-type View = 'boot' | 'player' | 'history' | 'closed'
+type View = 'boot' | 'player' | 'history' | 'vortex' | 'closed'
 type Theme = 'light' | 'dark'
 
 function systemTheme(): Theme {
@@ -31,7 +33,9 @@ export function OtoApp() {
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [cancelReason, setCancelReason] = useState<string | null>(null)
-  const [incoming, setIncoming] = useState<PlayerPayload | HistoryPayload | null>(null)
+  const [toolError, setToolError] = useState<string | null>(null)
+  const [vortexSeed, setVortexSeed] = useState(0)
+  const [incoming, setIncoming] = useState<UiPayload | null>(null)
 
   const { app, isConnected, error: connectError } = useApp({
     appInfo: { name: 'oto', version: '0.1.0' },
@@ -41,6 +45,9 @@ export function OtoApp() {
       created.ontoolresult = result => {
         const payload = parseUiPayload(result)
         if (payload) setIncoming(payload)
+        // Error result (or unparseable payload): surface it instead of
+        // leaving the boot skeleton up forever.
+        else setToolError(resultText(result) || 'The tool returned something oto can’t display')
       }
       created.ontoolcancelled = params => setCancelReason(params.reason ?? 'cancelled by host')
       created.onhostcontextchanged = ctx => {
@@ -55,27 +62,43 @@ export function OtoApp() {
   engineRef.current = engine
   const trackIdRef = useRef<string | null>(null)
   trackIdRef.current = track?.id ?? null
+  // Where "eject" lands when the vortex closes.
+  const vortexReturnRef = useRef<View>('history')
 
   useEffect(() => {
     const initial = app?.getHostContext()?.theme
     if (initial) setTheme(initial)
   }, [app, isConnected])
 
+  // Open the vortex; audio is deliberately left alone — it's a visualizer
+  // companion, not a player state. Omitting the seed rolls a fresh one (the
+  // local easter-egg path).
+  const openVortex = useCallback((seed?: number) => {
+    setVortexSeed(seed ?? Math.floor(Math.random() * 2 ** 31))
+    setView(v => {
+      if (v !== 'vortex') vortexReturnRef.current = v
+      return 'vortex'
+    })
+  }, [])
+
   // Apply the host-delivered tool result (the discriminated union on `kind`).
   useEffect(() => {
     if (!incoming) return
     setIncoming(null)
     setCancelReason(null)
+    setToolError(null)
     if (incoming.kind === 'audio') {
       setTrack(incoming)
       setView('player')
       engineRef.current.load(incoming)
-    } else {
+    } else if (incoming.kind === 'history') {
       setHistory(incoming)
       setHistoryStatus('idle')
       setView('history')
+    } else {
+      openVortex(incoming.seed)
     }
-  }, [incoming])
+  }, [incoming, openVortex])
 
   const fetchHistory = useCallback(
     async (offset: number) => {
@@ -87,11 +110,19 @@ export function OtoApp() {
           limit: PAGE_SIZE,
           offset,
         })
-        setHistory(prev =>
-          offset > 0 && prev
-            ? { kind: 'history', items: [...prev.items, ...page.items], total: page.total }
-            : page,
-        )
+        setHistory(prev => {
+          if (offset > 0 && prev) {
+            // Offset paging can shift while new generations land server-side;
+            // drop rows we already have so ids (and React keys) stay unique.
+            const seen = new Set(prev.items.map(i => i.id))
+            return {
+              kind: 'history',
+              items: [...prev.items, ...page.items.filter(i => !seen.has(i.id))],
+              total: page.total,
+            }
+          }
+          return page
+        })
         setHistoryStatus('idle')
       } catch {
         setHistoryStatus('error')
@@ -104,6 +135,16 @@ export function OtoApp() {
     setView('history')
     if (!history) void fetchHistory(0)
   }, [history, fetchHistory])
+
+  const exitVortex = useCallback(() => {
+    const back = vortexReturnRef.current
+    if (back === 'player' && trackIdRef.current) setView('player')
+    else if (back === 'closed') setView('closed')
+    else if (back === 'history') openHistory()
+    // Arrived straight from boot (server-driven vortex): land somewhere sane.
+    else if (trackIdRef.current) setView('player')
+    else openHistory()
+  }, [openHistory])
 
   const playItem = useCallback(
     async (item: HistoryItem) => {
@@ -168,11 +209,24 @@ export function OtoApp() {
   } else if (view === 'boot') {
     body = cancelReason ? (
       <MessagePanel kind="muted" text="Generation cancelled" detail={cancelReason} />
+    ) : toolError ? (
+      <MessagePanel
+        kind="error"
+        text="That didn’t work"
+        detail={toolError}
+        action={
+          <button type="button" className="oto-more" onClick={openHistory}>
+            open history
+          </button>
+        }
+      />
     ) : (
       <BootSkeleton />
     )
   } else if (view === 'closed') {
     body = <ClosedPill title={track?.title ?? 'archive'} onOpen={reopen} />
+  } else if (view === 'vortex') {
+    body = <VortexView seed={vortexSeed} playing={engine.state.playing} onExit={exitVortex} />
   } else if (view === 'history' || !track) {
     body = (
       <HistoryView
@@ -189,10 +243,19 @@ export function OtoApp() {
         onDelete={deleteItem}
         onLoadMore={() => void fetchHistory(history?.items.length ?? 0)}
         onRetry={() => void fetchHistory(0)}
+        onVortex={() => openVortex()}
       />
     )
   } else {
-    body = <PlayerView track={track} engine={engine} onClose={closeWidget} onHistory={openHistory} />
+    body = (
+      <PlayerView
+        track={track}
+        engine={engine}
+        onClose={closeWidget}
+        onHistory={openHistory}
+        onVortex={() => openVortex()}
+      />
+    )
   }
 
   return (
@@ -227,10 +290,12 @@ function MessagePanel({
   kind,
   text,
   detail,
+  action,
 }: {
   kind: 'error' | 'muted'
   text: string
   detail?: string
+  action?: ReactNode
 }) {
   return (
     <section className="oto-panel oto-message" data-kind={kind} role={kind === 'error' ? 'alert' : undefined}>
@@ -242,6 +307,7 @@ function MessagePanel({
       </header>
       <p className="oto-message-text">{text}</p>
       {detail && <p className="oto-message-detail">{detail}</p>}
+      {action}
     </section>
   )
 }
