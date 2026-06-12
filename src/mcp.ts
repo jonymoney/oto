@@ -16,13 +16,21 @@ import { userIdFrom } from './auth.js'
 import type { AudioRecord, HistoryItem, HistoryPayload, PlayerPayload } from './types.js'
 
 const PLAYER_URI = 'ui://oto/player.html'
-const bucketOrigin = new URL(config.BUCKET_ENDPOINT).origin
+
+// Railway buckets use virtual-host style URLs: presigned GETs resolve to
+// https://<bucket>.<endpoint-host>/..., so the CSP must cover that subdomain,
+// not just the bare endpoint origin.
+const endpointUrl = new URL(config.BUCKET_ENDPOINT)
+const bucketOrigins = [
+  endpointUrl.origin,
+  `${endpointUrl.protocol}//${config.BUCKET_NAME}.${endpointUrl.host}`,
+]
 
 // The iframe CSP is deny-by-default; the player streams mp3s from the bucket.
 const uiCsp = {
   csp: {
-    resourceDomains: [bucketOrigin],
-    connectDomains: [bucketOrigin],
+    resourceDomains: bucketOrigins,
+    connectDomains: bucketOrigins,
   },
   prefersBorder: true,
 }
