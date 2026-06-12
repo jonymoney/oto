@@ -14,6 +14,14 @@ export function PauseIcon() {
   )
 }
 
+export function StopIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function TrashIcon() {
   return (
     <svg

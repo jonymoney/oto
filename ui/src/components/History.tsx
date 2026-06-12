@@ -22,6 +22,8 @@ interface HistoryViewProps {
   onDelete: (id: string) => void
   onLoadMore: () => void
   onRetry: () => void
+  /** Open the voice rack (samples + favorite picker). */
+  onVoices: () => void
   onVortex: () => void
 }
 
@@ -39,6 +41,7 @@ export function HistoryView({
   onDelete,
   onLoadMore,
   onRetry,
+  onVoices,
   onVortex,
 }: HistoryViewProps) {
   // Two-step delete confirm (window.confirm is blocked in sandboxed iframes).
@@ -140,6 +143,15 @@ export function HistoryView({
         )}
         <span className="oto-bar-spacer" />
         {history && <span className="oto-count">{history.total} saved</span>}
+        <button
+          type="button"
+          className="oto-ghost"
+          onClick={onVoices}
+          aria-label="Browse voices"
+          title="Browse voices"
+        >
+          ♪ voices
+        </button>
         <button type="button" className="oto-ghost oto-x" onClick={onClose} aria-label="Close">
           ✕
         </button>

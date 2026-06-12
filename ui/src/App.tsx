@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
-import type { HistoryItem, HistoryPayload, PlayerPayload, StatusPayload } from '../../src/types'
-import { callTool, parseUiPayload, resultText } from './bridge'
+import type {
+  HistoryItem,
+  HistoryPayload,
+  PlayerPayload,
+  StatusPayload,
+  VoicesPayload,
+} from '../../src/types'
+import { callTool, callToolAck, parseUiPayload, resultText } from './bridge'
 import type { UiPayload } from './bridge'
 import { useAudioEngine } from './useAudioEngine'
 import { PlayerView } from './components/Player'
@@ -10,6 +16,8 @@ import { HistoryView } from './components/History'
 import type { HistoryStatus } from './components/History'
 import { ProcessingView } from './components/Processing'
 import type { ProcessingJob } from './components/Processing'
+import { VoicesView } from './components/Voices'
+import type { VoicesStatus } from './components/Voices'
 import { VortexView } from './components/Vortex'
 
 const PAGE_SIZE = 20
@@ -17,7 +25,7 @@ const POLL_MS = 2_500
 // Transient transport hiccups are tolerated for this many consecutive polls.
 const MAX_POLL_FAILURES = 4
 
-type View = 'boot' | 'player' | 'history' | 'processing' | 'vortex' | 'closed'
+type View = 'boot' | 'player' | 'history' | 'processing' | 'voices' | 'vortex' | 'closed'
 type Theme = 'light' | 'dark'
 
 function systemTheme(): Theme {
@@ -36,6 +44,8 @@ export function OtoApp() {
   const [readyPulse, setReadyPulse] = useState(false)
   const [history, setHistory] = useState<HistoryPayload | null>(null)
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>('idle')
+  const [voices, setVoices] = useState<VoicesPayload | null>(null)
+  const [voicesStatus, setVoicesStatus] = useState<VoicesStatus>('idle')
   const [actionError, setActionError] = useState<string | null>(null)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -71,8 +81,12 @@ export function OtoApp() {
   trackIdRef.current = track?.id ?? null
   const processingRef = useRef(processing)
   processingRef.current = processing
+  const voicesRef = useRef(voices)
+  voicesRef.current = voices
   // Where "eject" lands when the vortex closes.
   const vortexReturnRef = useRef<View>('history')
+  // Where "back" lands when the voice rack closes.
+  const voicesReturnRef = useRef<View>('history')
 
   useEffect(() => {
     const initial = app?.getHostContext()?.theme
@@ -115,6 +129,14 @@ export function OtoApp() {
       setHistory(incoming)
       setHistoryStatus('idle')
       setView('history')
+    } else if (incoming.kind === 'voices') {
+      // The gallery — via the voices tool or the listen-first elicitation path.
+      setVoices(incoming)
+      setVoicesStatus('idle')
+      setView(v => {
+        if (v !== 'voices') voicesReturnRef.current = v
+        return 'voices'
+      })
     } else {
       openVortex(incoming.seed)
     }
@@ -255,11 +277,68 @@ export function OtoApp() {
     if (!history) void fetchHistory(0)
   }, [history, fetchHistory])
 
+  /** Re-request the gallery (fresh presigned sample URLs) without UI churn. */
+  const refreshVoices = useCallback(async (): Promise<VoicesPayload> => {
+    if (!app) throw new Error('oto is not connected')
+    const payload = await callTool<VoicesPayload>(app, 'voices', {})
+    setVoices(payload)
+    return payload
+  }, [app])
+
+  const fetchVoices = useCallback(async () => {
+    setVoicesStatus('loading')
+    try {
+      await refreshVoices()
+      setVoicesStatus('idle')
+    } catch {
+      setVoicesStatus('error')
+    }
+  }, [refreshVoices])
+
+  const openVoices = useCallback(() => {
+    setView(v => {
+      if (v !== 'voices') voicesReturnRef.current = v
+      return 'voices'
+    })
+    if (!voicesRef.current) void fetchVoices()
+  }, [fetchVoices])
+
+  const exitVoices = useCallback(() => {
+    const back = voicesReturnRef.current
+    if (back === 'processing' && processingRef.current) setView('processing')
+    else if (back === 'player' && trackIdRef.current) setView('player')
+    else if (back === 'closed') setView('closed')
+    else if (back === 'history') openHistory()
+    // Arrived straight from boot (the listen-first path): land somewhere sane.
+    else if (trackIdRef.current) setView('player')
+    else openHistory()
+  }, [openHistory])
+
+  /** Optimistic favorite: the star moves now, reverts if the save fails. */
+  const saveFavorite = useCallback(
+    async (voice: string) => {
+      if (!app) throw new Error('oto is not connected')
+      const previous = voicesRef.current?.favorite ?? null
+      setVoices(prev => (prev ? { ...prev, favorite: voice } : prev))
+      try {
+        await callToolAck(app, 'set_favorite_voice', { voice })
+      } catch (err) {
+        // Revert only if nothing newer landed meanwhile.
+        setVoices(prev =>
+          prev && prev.favorite === voice ? { ...prev, favorite: previous } : prev,
+        )
+        throw err
+      }
+    },
+    [app],
+  )
+
   const exitVortex = useCallback(() => {
     const back = vortexReturnRef.current
     if (back === 'processing' && processingRef.current) setView('processing')
     else if (back === 'player' && trackIdRef.current) setView('player')
     else if (back === 'closed') setView('closed')
+    else if (back === 'voices') setView('voices')
     else if (back === 'history') openHistory()
     // Arrived straight from boot (server-driven vortex): land somewhere sane.
     else if (trackIdRef.current) setView('player')
@@ -394,6 +473,20 @@ export function OtoApp() {
         onRetryPoll={retryPolling}
       />
     )
+  } else if (view === 'voices') {
+    body = (
+      <VoicesView
+        voices={voices}
+        status={voicesStatus}
+        onSetFavorite={saveFavorite}
+        onRefreshUrls={refreshVoices}
+        onRetry={() => void fetchVoices()}
+        onPauseEngine={() => engineRef.current.pause()}
+        onBack={exitVoices}
+        onClose={closeWidget}
+        onVortex={() => openVortex()}
+      />
+    )
   } else if (view === 'history' || !track) {
     body = (
       <HistoryView
@@ -410,6 +503,7 @@ export function OtoApp() {
         onDelete={deleteItem}
         onLoadMore={() => void fetchHistory(history?.items.length ?? 0)}
         onRetry={() => void fetchHistory(0)}
+        onVoices={openVoices}
         onVortex={() => openVortex()}
       />
     )

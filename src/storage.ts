@@ -1,8 +1,10 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  S3ServiceException,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { config } from './config.js'
@@ -32,6 +34,26 @@ export async function putAudio(
       ContentType: contentType,
     }),
   )
+}
+
+/** True iff the object exists in the bucket. 404/NotFound → false; other errors rethrow. */
+export async function audioObjectExists(objectKey: string): Promise<boolean> {
+  try {
+    await s3.send(
+      new HeadObjectCommand({ Bucket: config.BUCKET_NAME, Key: objectKey }),
+    )
+    return true
+  } catch (err) {
+    // HEAD errors carry no body, so the SDK identifies a missing object by the
+    // modeled NotFound exception name or the raw 404 status in $metadata.
+    if (
+      err instanceof S3ServiceException &&
+      (err.name === 'NotFound' || err.$metadata.httpStatusCode === 404)
+    ) {
+      return false
+    }
+    throw err
+  }
 }
 
 export async function presignAudioUrl(objectKey: string): Promise<string> {

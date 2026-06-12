@@ -14,6 +14,7 @@ import { audioRepo, usageRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
 import { synthesize, resolveVoice, chunkText, estimateSec, VOICES } from './tts.js'
 import { startGenerationJob } from './jobs.js'
+import { getVoiceSamples } from './samples.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import type {
   AudioRecord,
@@ -22,6 +23,7 @@ import type {
   PlayerPayload,
   ProcessingPayload,
   StatusPayload,
+  VoicesPayload,
   VortexPayload,
 } from './types.js'
 
@@ -103,6 +105,12 @@ const historyPayloadShape = {
   total: z.number(),
 }
 
+const voicesPayloadShape = {
+  kind: z.literal('voices'),
+  voices: z.array(z.object({ voice: z.string(), sampleUrl: z.string() })),
+  favorite: z.string().nullable(),
+}
+
 function makeTitle(text: string): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length <= 60 ? line : `${line.slice(0, 57)}…`
@@ -143,8 +151,13 @@ function canElicit(server: McpServer): boolean {
 type VoiceElicitOutcome =
   | { kind: 'voice'; voice: string }
   | { kind: 'cancelled' }
+  /** The user wants to hear the samples first — show the gallery, generate nothing. */
+  | { kind: 'listen' }
   /** Declined, or the elicitation itself failed — use the config default voice. */
   | { kind: 'fallback' }
+
+/** Sentinel enum entry in the voice elicitation — never a real voice. */
+const LISTEN_FIRST = 'listen-first'
 
 /** Asks the user to pick a voice (and optionally save it as their favorite). */
 async function elicitVoice(
@@ -163,8 +176,11 @@ async function elicitVoice(
             type: 'string',
             title: 'Voice',
             description: 'The voice that reads your text aloud',
-            enum: [...VOICES],
-            enumNames: VOICES.map((v) => v.charAt(0).toUpperCase() + v.slice(1)),
+            enum: [LISTEN_FIRST, ...VOICES],
+            enumNames: [
+              '🎧 Listen to the voices first',
+              ...VOICES.map((v) => v.charAt(0).toUpperCase() + v.slice(1)),
+            ],
           },
           saveAsFavorite: {
             type: 'boolean',
@@ -185,6 +201,10 @@ async function elicitVoice(
   if (result.action === 'cancel') return { kind: 'cancelled' }
   if (result.action !== 'accept') return { kind: 'fallback' }
   const picked = result.content?.voice
+  // The sentinel must never reach resolveVoice (or, downstream, contentHash):
+  // it is not a voice, it is a request to browse the gallery. saveAsFavorite
+  // is deliberately ignored here — there is nothing to save yet.
+  if (picked === LISTEN_FIRST) return { kind: 'listen' }
   const chosen = resolveVoice(typeof picked === 'string' ? picked : undefined)
   if (result.content?.saveAsFavorite === true) {
     try {
@@ -276,6 +296,27 @@ type ToolExtra = { authInfo?: Parameters<typeof userIdFrom>[0]['authInfo'] }
 function errorResult(err: unknown) {
   const message = err instanceof Error ? err.message : String(err)
   return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true }
+}
+
+/** Voice gallery result: all samples plus the user's current favorite. */
+async function voicesResult(userId: string) {
+  const [voices, favorite] = await Promise.all([
+    getVoiceSamples(),
+    usageRepo.getFavoriteVoice(userId),
+  ])
+  const payload: VoicesPayload = { kind: 'voices', voices, favorite }
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text:
+          favorite === null
+            ? 'Voice gallery displayed — the user can listen to samples and pick a favorite. Offer to generate the audio again once they have chosen.'
+            : `Voice gallery displayed — the user can listen to samples and pick a favorite (current favorite: ${favorite}). Offer to generate the audio again once they have chosen.`,
+      },
+    ],
+    structuredContent: payload,
+  }
 }
 
 async function getHistory(userId: string, limit?: number, offset?: number) {
@@ -379,6 +420,10 @@ export function buildServer(): McpServer {
                 ],
               }
             }
+            // The user wants to audition the voices: show the gallery instead
+            // of generating. Not an error — the model should offer to retry
+            // the generation once a voice is picked.
+            if (outcome.kind === 'listen') return await voicesResult(userId)
             resolvedVoice = outcome.kind === 'voice' ? outcome.voice : resolveVoice()
           } else {
             resolvedVoice = resolveVoice()
@@ -568,6 +613,69 @@ export function buildServer(): McpServer {
     async ({ limit, offset }, extra) => {
       try {
         return await getHistory(userIdFrom(extra as ToolExtra), limit, offset)
+      } catch (err) {
+        return errorResult(err)
+      }
+    },
+  )
+
+  registerAppTool(
+    server,
+    'voices',
+    {
+      title: 'Voice gallery',
+      description:
+        'Show the voice gallery: every available voice with a short playable sample, plus the ' +
+        "user's current favorite. Call when the user wants to hear, compare, or choose voices. " +
+        'Samples are pre-generated — this costs nothing and creates no new audio.',
+      inputSchema: {},
+      outputSchema: voicesPayloadShape,
+      annotations: { readOnlyHint: true },
+      _meta: { ui: { resourceUri: PLAYER_URI } },
+    },
+    async (_args, extra) => {
+      try {
+        return await voicesResult(userIdFrom(extra as ToolExtra))
+      } catch (err) {
+        return errorResult(err)
+      }
+    },
+  )
+
+  // Default visibility (model AND app callable) and no UI of its own: the
+  // gallery iframe calls it when the user taps a voice, and the model can call
+  // it when the user states a favorite in chat. Plain registerTool — there is
+  // no resourceUri to normalize.
+  server.registerTool(
+    'set_favorite_voice',
+    {
+      title: 'Set favorite voice',
+      description:
+        "Save the user's favorite voice — it is used automatically for all future audio. " +
+        `Voices: ${VOICES.join(', ')}.`,
+      inputSchema: { voice: z.string().describe('The voice to save as favorite') },
+      outputSchema: { ok: z.boolean(), voice: z.string() },
+    },
+    async ({ voice }, extra) => {
+      try {
+        const { userId, email } = authUserFrom(extra as ToolExtra)
+        // Strict validation, not resolveVoice: silently saving the config
+        // default when the input is garbage would persist a favorite the user
+        // never chose.
+        const normalized = voice.trim().toLowerCase()
+        const match = VOICES.find((v) => v === normalized)
+        if (!match) {
+          return errorResult(
+            new Error(`Unknown voice "${voice}". Available voices: ${VOICES.join(', ')}.`),
+          )
+        }
+        await usageRepo.setFavoriteVoice(userId, match, email)
+        return {
+          content: [
+            { type: 'text' as const, text: `Saved — ${match} is now your oto voice.` },
+          ],
+          structuredContent: { ok: true, voice: match },
+        }
       } catch (err) {
         return errorResult(err)
       }

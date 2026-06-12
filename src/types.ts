@@ -81,6 +81,21 @@ export type HistoryPayload = {
   total: number
 }
 
+/** One voice with its playable, pre-generated sample. */
+export type VoiceSample = {
+  voice: string
+  /** Presigned URL of the global sample mp3 (samples/<voice>.mp3). */
+  sampleUrl: string
+}
+
+/** structuredContent payload for the voice gallery view. */
+export type VoicesPayload = {
+  kind: 'voices'
+  voices: VoiceSample[]
+  /** The user's current favorite voice, if any. */
+  favorite: string | null
+}
+
 /** structuredContent payload for the hidden vortex easter egg. */
 export type VortexPayload = {
   kind: 'vortex'

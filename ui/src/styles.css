@@ -706,6 +706,241 @@ body {
   padding: 5px 16px;
 }
 
+/* ───────────────────────── voice rack ───────────────────────── */
+
+.oto-voice-grid {
+  list-style: none;
+  margin: 0;
+  padding: 2px;
+  display: grid;
+  /* 2 columns in a narrow widget, 3 at full panel width */
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  max-height: 222px;
+  overflow-y: auto;
+}
+
+.oto-voice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 46px;
+  padding: 6px 7px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  transition: border-color 0.15s, box-shadow 0.2s;
+}
+
+.oto-voice[data-playing='true'] {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+/* the chosen one glows amber */
+.oto-voice[data-fav='true'] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  box-shadow: 0 0 0 1px var(--accent-dim), 0 0 12px var(--accent-dim);
+}
+
+.oto-voice-play {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, box-shadow 0.2s, transform 0.05s;
+}
+
+.oto-voice-play svg {
+  width: 10px;
+  height: 10px;
+  margin-left: 1px; /* optical centering of the triangle */
+}
+
+.oto-voice-play[data-playing='true'] svg {
+  margin-left: 0;
+}
+
+.oto-voice-play .oto-spin {
+  width: 10px;
+  height: 10px;
+}
+
+.oto-voice-play:hover {
+  border-color: var(--ink-3);
+}
+
+.oto-voice-play:active {
+  transform: scale(0.95);
+}
+
+.oto-voice-play:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.oto-voice-play[data-playing='true'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+
+.oto-voice-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.oto-voice-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: capitalize;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.oto-voice-tag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* VU micro-meter — lit while that card's sample plays */
+.oto-voice-vu {
+  flex: none;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.oto-voice-vu[data-live='true'] {
+  opacity: 1;
+}
+
+.oto-voice-vu i {
+  width: 3px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform-origin: bottom;
+}
+
+.oto-voice-vu i:nth-child(1) {
+  height: 7px;
+}
+.oto-voice-vu i:nth-child(2) {
+  height: 12px;
+}
+.oto-voice-vu i:nth-child(3) {
+  height: 9px;
+}
+.oto-voice-vu i:nth-child(4) {
+  height: 5px;
+}
+
+.oto-voice-vu[data-live='true'] i {
+  animation: oto-vu 0.7s ease-in-out infinite alternate;
+}
+
+.oto-voice-vu[data-live='true'] i:nth-child(1) {
+  animation-delay: -0.45s;
+}
+.oto-voice-vu[data-live='true'] i:nth-child(2) {
+  animation-delay: -0.1s;
+}
+.oto-voice-vu[data-live='true'] i:nth-child(3) {
+  animation-delay: -0.3s;
+}
+.oto-voice-vu[data-live='true'] i:nth-child(4) {
+  animation-delay: -0.6s;
+}
+
+@keyframes oto-vu {
+  from {
+    transform: scaleY(0.3);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.oto-voice-star {
+  appearance: none;
+  flex: none;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.oto-voice-star:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.oto-voice-star:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.oto-voice-star:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.oto-voice-star .oto-spin {
+  width: 11px;
+  height: 11px;
+}
+
+.oto-voice[data-fav='true'] .oto-voice-star {
+  color: var(--accent-bright);
+  text-shadow: 0 0 6px var(--accent-dim);
+}
+
+/* slim "★ saved" confirmation bar */
+.oto-voice-saved {
+  display: block;
+  margin: 8px 0 0;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.oto-voice-saved-name {
+  text-transform: capitalize;
+}
+
 /* ───────────────────────── closed pill ───────────────────────── */
 
 .oto-pill {
