@@ -13,7 +13,7 @@ MCP host (Claude web/Desktop, ChatGPT)
 │  oto service (Node 20+ / TypeScript / Express)                │
 │   ├── POST /mcp                MCP server (tools + ui:// res) │
 │   ├── /.well-known/...        OAuth protected-resource meta   │
-│   ├── /consent                Supabase OAuth consent page     │
+│   ├── /oauth/consent          Supabase OAuth consent page     │
 │   └── /health                 healthcheck                     │
 │  Postgres                      audio history metadata         │
 │  Storage Bucket (S3-compat)    mp3 files, presigned GET URLs  │
@@ -46,7 +46,7 @@ Supabase Auth (OAuth 2.1 server)     OpenAI TTS API
 - **Supabase Auth acts directly as the OAuth 2.1 authorization server** — its OAuth Server feature (beta, free) supports the full MCP handshake Claude performs: RFC 8414 discovery, dynamic client registration, PKCE, refresh tokens. No proxy auth server needed.
 - The oto server is the OAuth *resource server*: serve RFC 9728 Protected Resource Metadata at `/.well-known/oauth-protected-resource` with `authorization_servers: ["https://rzkoyjmzmpigcvxfdhmc.supabase.co/auth/v1"]`, return 401 + `WWW-Authenticate`, and verify Bearer JWTs statelessly against Supabase's JWKS (`jose`), checking `iss` + `exp`; `sub` = user id for history rows. SDK 1.29 ships `requireBearerAuth` middleware + metadata router.
 - Setup required in Supabase dashboard: enable **Authentication → OAuth Server** + dynamic client registration, and **migrate JWT signing keys to asymmetric (ES256)** — JWKS validation fails on legacy HS256.
-- **We must build the consent page ourselves** (Supabase doesn't host one) — small page on the oto service using `supabase.auth.oauth.getAuthorizationDetails / approveAuthorization / denyAuthorization`.
+- **We must build the consent page ourselves** (Supabase doesn't host one) — small page on the oto service using `supabase.auth.oauth.getAuthorizationDetails / approveAuthorization / denyAuthorization`. Dashboard config (set 2026-06-12): Authorization Path is **`/oauth/consent`** — the app MUST serve the consent page at exactly this path. The Supabase **Site URL** (Auth URL Configuration) is still unset; it must point at the oto service's public origin (Railway domain in prod, tunnel/localhost:3001 in dev) so `<Site URL>/oauth/consent` resolves.
 - Known gap: Supabase ignores RFC 8707 `resource` indicators (tokens carry `aud:"authenticated"`). Acceptable since this Supabase project is dedicated to oto; can harden later with a Custom Access Token Hook.
 
 ### Railway (hosting + DB + storage)
@@ -89,6 +89,7 @@ audios (
 ## Needs from Jonathan
 
 - [x] OpenAI API key in `.env` (validated against the API 2026-06-12)
-- [x] Supabase: OAuth Server enabled (2026-06-12) — verify dynamic client registration is also toggled on
+- [x] Supabase: OAuth Server enabled + Allow Dynamic OAuth Apps enabled (2026-06-12); Authorization Path `/oauth/consent`
+- [ ] Supabase: set Site URL (Auth URL Configuration) to the oto service's public origin once deployed — `<Site URL>/oauth/consent` must resolve to the consent page
 - [x] Supabase: JWT signing keys — already ES256 (verified via JWKS endpoint 2026-06-12; new projects default to asymmetric keys, no migration needed)
 - [ ] A paid Claude plan to add the custom connector for testing (Pro/Max/Team)
