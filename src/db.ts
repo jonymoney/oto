@@ -111,12 +111,18 @@ export async function initDb(): Promise<void> {
   // it; deleting audios or replaying stored ones never decreases it.
   await pool.query(`
     create table if not exists usage_counters (
-      user_id       uuid primary key,
-      email         text,
-      generated_sec numeric not null default 0,
-      unlimited     boolean not null default false,
-      updated_at    timestamptz not null default now()
+      user_id        uuid primary key,
+      email          text,
+      generated_sec  numeric not null default 0,
+      unlimited      boolean not null default false,
+      favorite_voice text,
+      updated_at     timestamptz not null default now()
     )
+  `)
+  // Migrate the pre-favorite-voice production table in place (no-op on fresh installs).
+  await pool.query(`
+    alter table usage_counters
+      add column if not exists favorite_voice text
   `)
 }
 
@@ -290,6 +296,28 @@ export const usageRepo = {
                      email = coalesce(excluded.email, usage_counters.email),
                      updated_at = now()`,
       [userId, email ?? null, seconds],
+    )
+  },
+
+  /** The user's saved favorite voice, or null when none has been saved. */
+  async getFavoriteVoice(userId: string): Promise<string | null> {
+    const { rows } = await pool.query<{ favorite_voice: string | null }>(
+      'select favorite_voice from usage_counters where user_id = $1',
+      [userId],
+    )
+    return rows[0]?.favorite_voice ?? null
+  },
+
+  /** Saves the favorite voice, preserving generated_sec/unlimited on existing rows. */
+  async setFavoriteVoice(userId: string, voice: string, email?: string): Promise<void> {
+    await pool.query(
+      `insert into usage_counters (user_id, email, favorite_voice, updated_at)
+       values ($1, $2, $3, now())
+       on conflict (user_id)
+       do update set favorite_voice = excluded.favorite_voice,
+                     email = coalesce(excluded.email, usage_counters.email),
+                     updated_at = now()`,
+      [userId, email ?? null, voice],
     )
   },
 }

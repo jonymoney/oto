@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 import {
   registerAppTool,
   registerAppResource,
@@ -134,6 +135,104 @@ async function isQuotaExempt(userId: string, email?: string): Promise<boolean> {
   return usageRepo.isUnlimited(userId)
 }
 
+/** True when the connected client declared the elicitation capability. */
+function canElicit(server: McpServer): boolean {
+  return Boolean(server.server.getClientCapabilities()?.elicitation)
+}
+
+type VoiceElicitOutcome =
+  | { kind: 'voice'; voice: string }
+  | { kind: 'cancelled' }
+  /** Declined, or the elicitation itself failed — use the config default voice. */
+  | { kind: 'fallback' }
+
+/** Asks the user to pick a voice (and optionally save it as their favorite). */
+async function elicitVoice(
+  server: McpServer,
+  userId: string,
+  email?: string,
+): Promise<VoiceElicitOutcome> {
+  let result: ElicitResult
+  try {
+    result = await server.server.elicitInput({
+      message: 'Which voice should oto use for this audio?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          voice: {
+            type: 'string',
+            title: 'Voice',
+            description: 'The voice that reads your text aloud',
+            enum: [...VOICES],
+            enumNames: VOICES.map((v) => v.charAt(0).toUpperCase() + v.slice(1)),
+          },
+          saveAsFavorite: {
+            type: 'boolean',
+            title: 'Save as favorite',
+            description: 'Use this voice automatically for all future audio',
+            default: false,
+          },
+        },
+        required: ['voice'],
+      },
+    })
+  } catch (err) {
+    // A client that advertised elicitation but errors/times out gets the
+    // non-elicit behavior (config default voice) instead of a crashed tool.
+    console.error('Voice elicitation failed; falling back to the default voice:', err)
+    return { kind: 'fallback' }
+  }
+  if (result.action === 'cancel') return { kind: 'cancelled' }
+  if (result.action !== 'accept') return { kind: 'fallback' }
+  const picked = result.content?.voice
+  const chosen = resolveVoice(typeof picked === 'string' ? picked : undefined)
+  if (result.content?.saveAsFavorite === true) {
+    try {
+      await usageRepo.setFavoriteVoice(userId, chosen, email)
+    } catch (err) {
+      // The chosen voice still applies to this generation; only the save failed.
+      console.error('Failed to save favorite voice:', err)
+    }
+  }
+  return { kind: 'voice', voice: chosen }
+}
+
+/**
+ * Confirms a generation that would consume a big share of the remaining quota.
+ * Returns true to proceed — including when the elicitation itself fails, which
+ * falls back to the non-elicit behavior (generate without asking).
+ */
+async function elicitCostConfirm(
+  server: McpServer,
+  estSec: number,
+  remainingSec: number,
+): Promise<boolean> {
+  let result: ElicitResult
+  try {
+    result = await server.server.elicitInput({
+      message:
+        `This will generate ~${fmtMinutes(estSec)} of audio and you have ` +
+        `${fmtMinutes(remainingSec)} of quota left. Generate it?`,
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          confirm: {
+            type: 'boolean',
+            title: 'Generate this audio',
+            description: `Uses ~${fmtMinutes(estSec)} of your remaining ${fmtMinutes(remainingSec)} quota`,
+            default: false,
+          },
+        },
+        required: ['confirm'],
+      },
+    })
+  } catch (err) {
+    console.error('Quota confirmation elicitation failed; proceeding without it:', err)
+    return true
+  }
+  return result.action === 'accept' && result.content?.confirm === true
+}
+
 async function playerPayload(rec: AudioRecord, deduped: boolean): Promise<PlayerPayload> {
   return {
     kind: 'audio',
@@ -232,7 +331,8 @@ export function buildServer(): McpServer {
         'Convert text to spoken audio and show an inline audio player. ' +
         'Audio is generated once and stored: repeating the same text/voice returns the existing audio. ' +
         `Texts over ${SYNC_THRESHOLD} characters generate in the background — the player shows progress and updates itself when ready. ` +
-        `Voices: ${VOICES.join(', ')}.` +
+        `Voices: ${VOICES.join(', ')}. ` +
+        'The tool may ask the user directly to pick a voice (when none is set) or to confirm a generation that would use a large share of their remaining quota.' +
         (quotaSec > 0
           ? ` Each user can generate up to ${config.QUOTA_MINUTES} minutes of new audio; stored audios stay playable for free.`
           : ''),
@@ -257,7 +357,33 @@ export function buildServer(): McpServer {
         const cleanText = text.trim()
         if (!cleanText) return errorResult(new Error('Text is empty'))
 
-        const resolvedVoice = resolveVoice(voice)
+        // Voice resolution happens before hashing — the voice is part of the
+        // dedup key. Explicit param wins; then the saved favorite; then (on
+        // elicitation-capable hosts) the user picks; else the config default.
+        let resolvedVoice: string
+        if (voice !== undefined) {
+          resolvedVoice = resolveVoice(voice)
+        } else {
+          const favorite = await usageRepo.getFavoriteVoice(userId)
+          if (favorite) {
+            resolvedVoice = resolveVoice(favorite)
+          } else if (canElicit(server)) {
+            const outcome = await elicitVoice(server, userId, email)
+            if (outcome.kind === 'cancelled') {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: 'Voice selection cancelled — no audio generated.',
+                  },
+                ],
+              }
+            }
+            resolvedVoice = outcome.kind === 'voice' ? outcome.voice : resolveVoice()
+          } else {
+            resolvedVoice = resolveVoice()
+          }
+        }
         const hash = contentHash(cleanText, resolvedVoice, instructions?.trim() || undefined)
 
         let existing = await audioRepo.findByHash(userId, hash)
@@ -314,6 +440,17 @@ export function buildServer(): McpServer {
                   `of the ${config.QUOTA_MINUTES} min generation quota remains. Try a shorter text.`,
               ),
             )
+          }
+          // On elicitation-capable hosts, a generation that would eat more
+          // than half the remaining quota needs the user's explicit go-ahead.
+          const remainingSec = quotaSec - usedSec
+          if (estSec > remainingSec * 0.5 && canElicit(server)) {
+            const confirmed = await elicitCostConfirm(server, estSec, remainingSec)
+            if (!confirmed) {
+              return {
+                content: [{ type: 'text' as const, text: 'Generation cancelled.' }],
+              }
+            }
           }
         }
 

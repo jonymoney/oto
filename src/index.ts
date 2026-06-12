@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import type { Request, Response } from 'express'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { config } from './config.js'
 import { initDb, closeDb } from './db.js'
 import { buildServer } from './mcp.js'
@@ -54,43 +57,129 @@ app.get('/', (_req, res) => {
 app.use(wellKnownRouter())
 app.use(consentRouter())
 
-// Stateless Streamable HTTP: a fresh server + transport per request. Survives
-// restarts/replicas and avoids long-lived SSE streams hitting Railway's
-// 15-minute edge limit.
+// ---------------------------------------------------------------------------
+// Stateful Streamable HTTP sessions. Elicitation needs server→client requests
+// mid-call, which requires a session (and its SSE streams) to outlive a single
+// POST. Sessions live in memory — oto runs as a single replica, so a shared
+// session store is unnecessary.
+// ---------------------------------------------------------------------------
+
+const SESSION_IDLE_MS = 30 * 60 * 1000
+const KEEP_ALIVE_MS = 25_000
+const SWEEP_MS = 60_000
+
+interface Session {
+  transport: StreamableHTTPServerTransport
+  server: McpServer
+  lastSeen: number
+  keepAlive: NodeJS.Timeout
+}
+
+const sessions = new Map<string, Session>()
+
+function sessionIdOf(req: Request): string | undefined {
+  const id = req.headers['mcp-session-id']
+  return typeof id === 'string' ? id : undefined
+}
+
+function rpcError(res: Response, status: number, code: number, message: string): void {
+  res.status(status).json({ jsonrpc: '2.0', error: { code, message }, id: null })
+}
+
 app.post('/mcp', authMiddleware(), async (req: Request, res: Response) => {
   try {
+    const sessionId = sessionIdOf(req)
+    if (sessionId) {
+      const session = sessions.get(sessionId)
+      if (!session) {
+        // Unknown/expired session: 404 tells spec-compliant clients to reinitialize.
+        rpcError(res, 404, -32001, 'Session not found')
+        return
+      }
+      session.lastSeen = Date.now()
+      await session.transport.handleRequest(req, res, req.body)
+      return
+    }
+
+    if (!isInitializeRequest(req.body)) {
+      rpcError(res, 400, -32000, 'Bad Request: no valid session ID provided')
+      return
+    }
+
     const server = buildServer()
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        // Railway's edge kills streams idle for ~60s; ping the client over the
+        // session's SSE stream often enough to keep it open. Failures (e.g. no
+        // GET stream open yet, ping timeout) are harmless.
+        const keepAlive = setInterval(() => {
+          server.server.ping().catch(() => {})
+        }, KEEP_ALIVE_MS)
+        sessions.set(id, { transport, server, lastSeen: Date.now(), keepAlive })
+      },
     })
-    res.on('close', () => {
-      void transport.close()
-      void server.close()
-    })
+    // Assigned before connect(): Protocol.connect chains (not replaces) an
+    // existing onclose, so both this cleanup and the protocol's teardown run.
+    transport.onclose = () => {
+      const id = transport.sessionId
+      if (!id) return
+      const session = sessions.get(id)
+      if (session) {
+        clearInterval(session.keepAlive)
+        sessions.delete(id)
+      }
+    }
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
+    if (!transport.sessionId) {
+      // Malformed initialize: no session was created, so nothing references
+      // this server/transport pair — close it instead of leaking it.
+      void transport.close()
+    }
   } catch (err) {
     console.error('MCP request failed:', err)
     if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: '2.0',
-        error: { code: -32603, message: 'Internal server error' },
-        id: null,
-      })
+      rpcError(res, 500, -32603, 'Internal server error')
     }
   }
 })
 
-const methodNotAllowed = (_req: Request, res: Response) => {
-  res.status(405).json({
-    jsonrpc: '2.0',
-    error: { code: -32000, message: 'Method not allowed in stateless mode' },
-    id: null,
-  })
+// GET opens the server→client SSE stream (required for elicitation); DELETE is
+// spec-compliant session termination (the transport closes itself, and onclose
+// above evicts the session). Both carry only headers, which is all
+// requireBearerAuth reads — it never touches the body.
+const handleSessionRequest = async (req: Request, res: Response) => {
+  try {
+    const sessionId = sessionIdOf(req)
+    const session = sessionId ? sessions.get(sessionId) : undefined
+    if (!session) {
+      rpcError(res, 404, -32001, 'Session not found')
+      return
+    }
+    session.lastSeen = Date.now()
+    await session.transport.handleRequest(req, res)
+  } catch (err) {
+    console.error('MCP request failed:', err)
+    if (!res.headersSent) {
+      rpcError(res, 500, -32603, 'Internal server error')
+    }
+  }
 }
-app.get('/mcp', methodNotAllowed)
-app.delete('/mcp', methodNotAllowed)
+app.get('/mcp', authMiddleware(), handleSessionRequest)
+app.delete('/mcp', authMiddleware(), handleSessionRequest)
+
+// Evict sessions whose client vanished without a DELETE; closing the transport
+// triggers onclose, which clears the keep-alive timer and the map entry.
+const sweepTimer = setInterval(() => {
+  const cutoff = Date.now() - SESSION_IDLE_MS
+  for (const session of sessions.values()) {
+    if (session.lastSeen < cutoff) {
+      session.transport.close().catch(() => {})
+    }
+  }
+}, SWEEP_MS)
+sweepTimer.unref()
 
 await initDb()
 
@@ -98,9 +187,14 @@ const httpServer = app.listen(config.PORT, '0.0.0.0', () => {
   console.log(`oto MCP server listening on :${config.PORT} (auth: ${config.AUTH_MODE})`)
 })
 
-// Railway sends SIGTERM on redeploy; drain in-flight requests before exiting.
+// Railway sends SIGTERM on redeploy; close all sessions first (ending their
+// SSE streams so httpServer.close can drain), then exit.
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, draining…')
+  clearInterval(sweepTimer)
+  for (const session of sessions.values()) {
+    session.transport.close().catch(() => {})
+  }
   httpServer.close(() => {
     void closeDb().finally(() => process.exit(0))
   })
