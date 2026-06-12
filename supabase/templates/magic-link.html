@@ -1,0 +1,52 @@
+<!-- oto — Supabase "Magic Link" email template.
+     Paste into: Dashboard → Authentication → Emails → Magic Link.
+     Styled to match public/consent.html (email-safe: tables + inline styles,
+     no SVG/external CSS). Variables: {{ .ConfirmationURL }} -->
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your one-time sign-in link for oto.</div>
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" bgcolor="#14100d" style="background-color:#14100d;padding:48px 16px;">
+  <tr>
+    <td align="center">
+      <table width="440" cellpadding="0" cellspacing="0" role="presentation" style="width:440px;max-width:100%;background-color:#1e1813;border:1px solid #352b22;border-radius:18px;">
+        <tr>
+          <td style="padding:36px 32px 32px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;">
+
+            <!-- brand: three-bar mark + wordmark -->
+            <table cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:26px;">
+              <tr>
+                <td valign="middle" style="padding-right:3px;"><div style="width:4px;height:8px;background-color:#e6a45c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</div></td>
+                <td valign="middle" style="padding-right:3px;"><div style="width:4px;height:16px;background-color:#c97f35;border-radius:2px;font-size:0;line-height:0;">&nbsp;</div></td>
+                <td valign="middle" style="padding-right:10px;"><div style="width:4px;height:4px;background-color:#e6a45c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</div></td>
+                <td valign="middle" style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:22px;font-weight:650;letter-spacing:0.16em;color:#f3ebe1;">oto</td>
+              </tr>
+            </table>
+
+            <h1 style="margin:0 0 6px;font-size:17px;font-weight:600;line-height:1.45;color:#f3ebe1;">Your sign-in link</h1>
+            <p style="margin:0 0 24px;font-size:13px;line-height:1.55;color:#a3927f;">Follow the link below to sign in to oto. This link expires shortly and can only be used once.</p>
+
+            <!-- button -->
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+              <tr>
+                <td align="center" bgcolor="#e6a45c" style="border-radius:10px;background-image:linear-gradient(180deg,#e6a45c,#c97f35);">
+                  <a href="{{ .ConfirmationURL }}" target="_blank" style="display:block;padding:12px 16px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;font-weight:600;color:#1c130a;text-decoration:none;border-radius:10px;">Sign in</a>
+                </td>
+              </tr>
+            </table>
+
+            <!-- fallback link -->
+            <p style="margin:22px 0 0;font-size:12.5px;line-height:1.5;color:#79695a;">If the button doesn&rsquo;t work, copy and paste this link into your browser:</p>
+            <p style="margin:6px 0 0;word-break:break-all;line-height:1.5;"><a href="{{ .ConfirmationURL }}" target="_blank" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#e6a45c;text-decoration:none;">{{ .ConfirmationURL }}</a></p>
+
+          </td>
+        </tr>
+      </table>
+
+      <table width="440" cellpadding="0" cellspacing="0" role="presentation" style="width:440px;max-width:100%;">
+        <tr>
+          <td align="center" style="padding:18px 16px 0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:12.5px;line-height:1.5;color:#79695a;">
+            If you didn&rsquo;t request this link, you can safely ignore this email &mdash; your account is unaffected.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
