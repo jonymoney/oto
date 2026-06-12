@@ -89,3 +89,10 @@ export function userIdFrom(extra: { authInfo?: AuthInfo }): string {
   }
   return userId
 }
+
+/** Like userIdFrom, but also returns the token's email claim when present. */
+export function authUserFrom(extra: { authInfo?: AuthInfo }): { userId: string; email?: string } {
+  const userId = userIdFrom(extra)
+  const email = extra.authInfo?.extra?.email
+  return { userId, email: typeof email === 'string' && email.length > 0 ? email : undefined }
+}

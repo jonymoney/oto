@@ -25,6 +25,13 @@ const EnvSchema = z.object({
 
   // 'disabled' skips OAuth for local development only — never in production.
   AUTH_MODE: z.enum(['oauth', 'disabled']).default('oauth'),
+
+  // Per-user cap on cumulative GENERATED audio (dedup replays are free and
+  // deletions never refund). 0 = unlimited for everyone.
+  QUOTA_MINUTES: z.coerce.number().min(0).default(10),
+  // Comma-separated emails exempt from the quota. The per-user `unlimited`
+  // flag in usage_counters does the same without a redeploy.
+  QUOTA_EXEMPT_EMAILS: z.string().default(''),
 })
 
 const env = EnvSchema.parse(process.env)
@@ -41,6 +48,12 @@ export const config = {
   issuer: `${env.SUPABASE_URL}/auth/v1`,
   /** JWKS endpoint for stateless Bearer JWT verification (ES256). */
   jwksUrl: `${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`,
+  /** Lower-cased email set exempt from the generation quota. */
+  quotaExemptEmails: new Set(
+    env.QUOTA_EXEMPT_EMAILS.split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  ),
 }
 
 export type Config = typeof config

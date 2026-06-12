@@ -9,10 +9,10 @@ import {
 } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 import { config } from './config.js'
-import { audioRepo } from './db.js'
+import { audioRepo, usageRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
 import { synthesize, resolveVoice, VOICES } from './tts.js'
-import { userIdFrom } from './auth.js'
+import { userIdFrom, authUserFrom } from './auth.js'
 import type { AudioRecord, HistoryItem, HistoryPayload, PlayerPayload, VortexPayload } from './types.js'
 
 const PLAYER_URI = 'ui://oto/player.html'
@@ -92,6 +92,23 @@ function fmtDuration(durationSec: number | null): string {
   if (durationSec === null) return 'unknown length'
   const s = Math.round(durationSec)
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+const quotaSec = config.QUOTA_MINUTES * 60
+
+function fmtMinutes(seconds: number): string {
+  return `${(seconds / 60).toFixed(1)} min`
+}
+
+/** ~15 chars/sec of speech — fallback when the mp3 duration probe fails. */
+function estimateSec(charCount: number): number {
+  return charCount / 15
+}
+
+/** Exempt from the generation quota via env allowlist or the DB unlimited flag. */
+async function isQuotaExempt(userId: string, email?: string): Promise<boolean> {
+  if (email && config.quotaExemptEmails.has(email.toLowerCase())) return true
+  return usageRepo.isUnlimited(userId)
 }
 
 async function playerPayload(rec: AudioRecord, deduped: boolean): Promise<PlayerPayload> {
@@ -177,7 +194,10 @@ export function buildServer(): McpServer {
       description:
         'Convert text to spoken audio and show an inline audio player. ' +
         'Audio is generated once and stored: repeating the same text/voice returns the existing audio. ' +
-        `Voices: ${VOICES.join(', ')}.`,
+        `Voices: ${VOICES.join(', ')}.` +
+        (quotaSec > 0
+          ? ` Each user can generate up to ${config.QUOTA_MINUTES} minutes of new audio; stored audios stay playable for free.`
+          : ''),
       inputSchema: {
         // Capped so worst-case generation stays well under host/edge timeouts:
         // responses are buffered JSON with zero bytes on the wire until done.
@@ -194,7 +214,7 @@ export function buildServer(): McpServer {
     },
     async ({ text, voice, instructions }, extra) => {
       try {
-        const userId = userIdFrom(extra as ToolExtra)
+        const { userId, email } = authUserFrom(extra as ToolExtra)
         const cleanText = text.trim()
         if (!cleanText) return errorResult(new Error('Text is empty'))
 
@@ -215,6 +235,19 @@ export function buildServer(): McpServer {
           }
         }
 
+        const exempt = quotaSec === 0 || (await isQuotaExempt(userId, email))
+        if (quotaSec > 0 && !exempt) {
+          const usedSec = await usageRepo.generatedSec(userId)
+          if (usedSec >= quotaSec) {
+            return errorResult(
+              new Error(
+                `Generation limit reached (${fmtMinutes(usedSec)} of ${config.QUOTA_MINUTES} min). ` +
+                  'New audio cannot be generated, but everything in your history stays playable.',
+              ),
+            )
+          }
+        }
+
         const result = await synthesize(cleanText, { voice: resolvedVoice, instructions })
         const objectKey = `audio/${userId}/${hash}.${result.format}`
         await putAudio(objectKey, result.audio)
@@ -232,12 +265,22 @@ export function buildServer(): McpServer {
           charCount: result.charCount,
         })
 
+        // Usage is recorded for everyone (cost visibility); only non-exempt
+        // users see — and are bound by — the quota.
+        const generatedSec = result.durationSec ?? estimateSec(result.charCount)
+        await usageRepo.addGeneratedSec(userId, generatedSec, email)
+        let quotaNote = ''
+        if (quotaSec > 0 && !exempt) {
+          const usedSec = await usageRepo.generatedSec(userId)
+          quotaNote = ` Generation quota used: ${fmtMinutes(usedSec)} of ${config.QUOTA_MINUTES} min.`
+        }
+
         const payload = await playerPayload(rec, false)
         return {
           content: [
             {
               type: 'text' as const,
-              text: `Generated audio "${rec.title}" (${fmtDuration(rec.durationSec)}, voice ${rec.voice}). The player is displayed to the user.`,
+              text: `Generated audio "${rec.title}" (${fmtDuration(rec.durationSec)}, voice ${rec.voice}). The player is displayed to the user.${quotaNote}`,
             },
           ],
           structuredContent: payload,

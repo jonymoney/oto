@@ -85,6 +85,17 @@ export async function initDb(): Promise<void> {
     create index if not exists audios_user_id_created_at_idx
       on audios (user_id, created_at desc)
   `)
+  // Monotonic per-user generation usage: only real OpenAI generations add to
+  // it; deleting audios or replaying stored ones never decreases it.
+  await pool.query(`
+    create table if not exists usage_counters (
+      user_id       uuid primary key,
+      email         text,
+      generated_sec numeric not null default 0,
+      unlimited     boolean not null default false,
+      updated_at    timestamptz not null default now()
+    )
+  `)
 }
 
 export async function closeDb(): Promise<void> {
@@ -174,5 +185,37 @@ export const audioRepo = {
       [userId, id],
     )
     return rows[0] ? mapRow(rows[0]) : null
+  },
+}
+
+export const usageRepo = {
+  /** Cumulative seconds of audio this user has had generated (never decreases). */
+  async generatedSec(userId: string): Promise<number> {
+    const { rows } = await pool.query<{ generated_sec: string }>(
+      'select generated_sec::text from usage_counters where user_id = $1',
+      [userId],
+    )
+    return rows[0] ? Number(rows[0].generated_sec) : 0
+  },
+
+  /** True when this user has the per-user unlimited-generation flag. */
+  async isUnlimited(userId: string): Promise<boolean> {
+    const { rows } = await pool.query<{ unlimited: boolean }>(
+      'select unlimited from usage_counters where user_id = $1',
+      [userId],
+    )
+    return rows[0]?.unlimited ?? false
+  },
+
+  async addGeneratedSec(userId: string, seconds: number, email?: string): Promise<void> {
+    await pool.query(
+      `insert into usage_counters (user_id, email, generated_sec, updated_at)
+       values ($1, $2, $3, now())
+       on conflict (user_id)
+       do update set generated_sec = usage_counters.generated_sec + excluded.generated_sec,
+                     email = coalesce(excluded.email, usage_counters.email),
+                     updated_at = now()`,
+      [userId, email ?? null, seconds],
+    )
   },
 }
