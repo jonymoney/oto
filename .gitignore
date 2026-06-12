@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Local tool config — may contain project refs/tokens
+.mcp.json
+.claude/settings.local.json
+
 # Dependencies
 node_modules/
 
@@ -18,9 +22,17 @@ build/
 .next/
 out/
 
+# TypeScript
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
 # Cache
 .cache/
 .vite/
+.eslintcache
+.turbo/
 
 # Logs
 *.log
