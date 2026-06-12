@@ -21,7 +21,7 @@ export interface AudioRecord {
 export type NewAudio = Omit<AudioRecord, 'id' | 'createdAt'>
 
 /** structuredContent payload for the player UI after text_to_speech. */
-export interface PlayerPayload {
+export type PlayerPayload = {
   kind: 'audio'
   id: string
   title: string
@@ -34,7 +34,7 @@ export interface PlayerPayload {
 }
 
 /** One item in the history list (no URL — presigned on demand). */
-export interface HistoryItem {
+export type HistoryItem = {
   id: string
   title: string
   durationSec: number | null
@@ -44,7 +44,7 @@ export interface HistoryItem {
 }
 
 /** structuredContent payload for the history view. */
-export interface HistoryPayload {
+export type HistoryPayload = {
   kind: 'history'
   items: HistoryItem[]
   total: number
