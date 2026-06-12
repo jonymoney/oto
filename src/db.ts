@@ -58,6 +58,11 @@ const pool = new Pool({
   ssl: sslFor(config.DATABASE_URL),
 })
 
+// Without a listener, an error on an idle pooled connection crashes the process.
+pool.on('error', (err) => {
+  console.error('Postgres pool error (idle client):', err)
+})
+
 export async function initDb(): Promise<void> {
   await pool.query(`
     create table if not exists audios (
@@ -149,7 +154,7 @@ export const audioRepo = {
       pool.query<AudioRow>(
         `select ${COLUMNS} from audios
          where user_id = $1
-         order by created_at desc
+         order by created_at desc, id desc
          limit $2 offset $3`,
         [userId, safeLimit, safeOffset],
       ),

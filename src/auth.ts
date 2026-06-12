@@ -15,7 +15,12 @@ async function verifyAccessToken(token: string): Promise<AuthInfo> {
   try {
     // Audience is deliberately not enforced: Supabase ignores RFC 8707 resource
     // indicators and issues tokens with aud "authenticated" (documented limitation).
-    ;({ payload } = await jwtVerify(token, jwks, { issuer: config.issuer }))
+    ;({ payload } = await jwtVerify(token, jwks, {
+      issuer: config.issuer,
+      // Supabase signs with asymmetric keys (ES256 today); pin the accepted
+      // algorithm family to rule out any downgrade path.
+      algorithms: ['ES256', 'RS256'],
+    }))
   } catch (err) {
     throw new InvalidTokenError(err instanceof Error ? err.message : 'Token verification failed')
   }
@@ -64,7 +69,11 @@ export function wellKnownRouter(): Router {
     scopes_supported: [],
   }
   const handler: RequestHandler = (_req, res) => {
-    res.set('Cache-Control', 'public, max-age=3600').json(metadata)
+    res
+      .set('Cache-Control', 'public, max-age=3600')
+      // Public metadata; browser-based MCP clients fetch it cross-origin.
+      .set('Access-Control-Allow-Origin', '*')
+      .json(metadata)
   }
   router.get('/.well-known/oauth-protected-resource', handler)
   // Some clients resolve metadata relative to the resource path (/mcp).

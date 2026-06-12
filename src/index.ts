@@ -2,7 +2,7 @@ import express from 'express'
 import type { Request, Response } from 'express'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { config } from './config.js'
-import { initDb } from './db.js'
+import { initDb, closeDb } from './db.js'
 import { buildServer } from './mcp.js'
 import { authMiddleware, wellKnownRouter } from './auth.js'
 import { consentRouter } from './consent.js'
@@ -57,6 +57,15 @@ app.delete('/mcp', methodNotAllowed)
 
 await initDb()
 
-app.listen(config.PORT, '0.0.0.0', () => {
+const httpServer = app.listen(config.PORT, '0.0.0.0', () => {
   console.log(`oto MCP server listening on :${config.PORT} (auth: ${config.AUTH_MODE})`)
+})
+
+// Railway sends SIGTERM on redeploy; drain in-flight requests before exiting.
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, draining…')
+  httpServer.close(() => {
+    void closeDb().finally(() => process.exit(0))
+  })
+  setTimeout(() => process.exit(0), 10_000).unref()
 })

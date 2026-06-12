@@ -26,6 +26,9 @@ export function consentRouter(): Router {
   const router = Router()
   router.get(['/consent', '/oauth/consent'], (_req, res) => {
     res.setHeader('Cache-Control', 'no-store')
+    // An OAuth authorization UI must never render inside a frame (clickjacking).
+    res.setHeader('X-Frame-Options', 'DENY')
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'")
     res.type('html').send(html)
   })
   return router

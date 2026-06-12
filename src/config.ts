@@ -29,6 +29,12 @@ const EnvSchema = z.object({
 
 const env = EnvSchema.parse(process.env)
 
+// Refuse to boot with auth disabled on Railway: one stray env var must never
+// silently expose every tool (and the dev user's data) to the open internet.
+if (env.AUTH_MODE === 'disabled' && process.env.RAILWAY_ENVIRONMENT) {
+  throw new Error('AUTH_MODE=disabled is forbidden in Railway environments — unset it or use "oauth"')
+}
+
 export const config = {
   ...env,
   /** OAuth issuer: Supabase Auth acts as the authorization server. */

@@ -49,3 +49,10 @@ export type HistoryPayload = {
   items: HistoryItem[]
   total: number
 }
+
+/** structuredContent payload for the hidden vortex easter egg. */
+export type VortexPayload = {
+  kind: 'vortex'
+  /** Seed for the vortex animation so each opening looks different. */
+  seed: number
+}

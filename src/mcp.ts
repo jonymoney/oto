@@ -13,7 +13,7 @@ import { audioRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
 import { synthesize, resolveVoice, VOICES } from './tts.js'
 import { userIdFrom } from './auth.js'
-import type { AudioRecord, HistoryItem, HistoryPayload, PlayerPayload } from './types.js'
+import type { AudioRecord, HistoryItem, HistoryPayload, PlayerPayload, VortexPayload } from './types.js'
 
 const PLAYER_URI = 'ui://oto/player.html'
 
@@ -79,10 +79,13 @@ function makeTitle(text: string): string {
   return line.length <= 60 ? line : `${line.slice(0, 57)}…`
 }
 
-function contentHash(text: string, voice: string): string {
-  return createHash('sha256')
-    .update(`${config.TTS_MODEL}|${voice}|${config.TTS_FORMAT}|${text}`)
-    .digest('hex')
+function contentHash(text: string, voice: string, instructions?: string): string {
+  // The instructions suffix is only appended when present so hashes (and the
+  // stored audio they dedup against) stay stable for instruction-less requests.
+  const key =
+    `${config.TTS_MODEL}|${voice}|${config.TTS_FORMAT}|${text}` +
+    (instructions ? `|i:${instructions}` : '')
+  return createHash('sha256').update(key).digest('hex')
 }
 
 function fmtDuration(durationSec: number | null): string {
@@ -169,7 +172,9 @@ export function buildServer(): McpServer {
         'Audio is generated once and stored: repeating the same text/voice returns the existing audio. ' +
         `Voices: ${VOICES.join(', ')}.`,
       inputSchema: {
-        text: z.string().min(1).max(20000).describe('The text to read aloud'),
+        // Capped so worst-case generation stays well under host/edge timeouts:
+        // responses are buffered JSON with zero bytes on the wire until done.
+        text: z.string().min(1).max(8000).describe('The text to read aloud'),
         voice: z.string().optional().describe(`Voice to use (default ${config.TTS_VOICE})`),
         instructions: z
           .string()
@@ -187,7 +192,7 @@ export function buildServer(): McpServer {
         if (!cleanText) return errorResult(new Error('Text is empty'))
 
         const resolvedVoice = resolveVoice(voice)
-        const hash = contentHash(cleanText, resolvedVoice)
+        const hash = contentHash(cleanText, resolvedVoice, instructions?.trim() || undefined)
 
         const existing = await audioRepo.findByHash(userId, hash)
         if (existing) {
@@ -258,6 +263,42 @@ export function buildServer(): McpServer {
     },
   )
 
+  registerAppTool(
+    server,
+    'vortex',
+    {
+      title: 'The Vortex',
+      description:
+        'Easter egg: open the oto vortex — a hypnotic ASCII spiral visual. ' +
+        'Call when the user asks for the vortex, trip mode, or the oto easter egg. ' +
+        'Generates no audio and costs nothing.',
+      inputSchema: {},
+      outputSchema: { kind: z.literal('vortex'), seed: z.number() },
+      annotations: { readOnlyHint: true },
+      _meta: { ui: { resourceUri: PLAYER_URI } },
+    },
+    async (_args, extra) => {
+      try {
+        userIdFrom(extra as ToolExtra)
+        const payload: VortexPayload = {
+          kind: 'vortex',
+          seed: Math.floor(Math.random() * 2 ** 31),
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'The vortex is open. Best enjoyed while audio plays. There is nothing else to say.',
+            },
+          ],
+          structuredContent: payload,
+        }
+      } catch (err) {
+        return errorResult(err)
+      }
+    },
+  )
+
   // App-only tools: callable from the player iframe, hidden from the model.
   registerAppTool(
     server,
@@ -312,6 +353,9 @@ export function buildServer(): McpServer {
       description: 'Delete a stored audio and its file (app-internal).',
       inputSchema: { id: z.string().describe('Audio id') },
       outputSchema: { ok: z.boolean(), id: z.string() },
+      // Hosts without MCP Apps support ignore visibility:["app"] and expose
+      // this to the model — the destructive hint lets them gate it.
+      annotations: { destructiveHint: true },
       _meta: { ui: { resourceUri: PLAYER_URI, visibility: ['app'] } },
     },
     async ({ id }, extra) => {

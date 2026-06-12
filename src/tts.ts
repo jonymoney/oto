@@ -106,24 +106,30 @@ export async function synthesize(
   const instructions = opts?.instructions?.trim()
   const withInstructions = instructions && !MODELS_WITHOUT_INSTRUCTIONS.has(model)
 
-  const buffers: Buffer[] = []
+  // Chunks synthesize concurrently (order preserved by Promise.all) — the host
+  // gets zero bytes until the JSON response is complete, so wall-clock latency
+  // must stay well under client/edge timeouts.
   // Probe duration per chunk and sum: probing the concatenated buffer would report
   // only the first segment's length if it carries a Xing/LAME header.
+  const parts = await Promise.all(
+    chunkText(input).map(async (chunk) => {
+      const response = await openai.audio.speech.create({
+        model,
+        voice,
+        input: chunk,
+        response_format: 'mp3',
+        ...(withInstructions ? { instructions } : {}),
+      })
+      const buffer = Buffer.from(await response.arrayBuffer())
+      return { buffer, duration: await probeDurationSec(buffer) }
+    }),
+  )
+
+  const buffers = parts.map((p) => p.buffer)
   let durationSec: number | null = 0
-  for (const chunk of chunkText(input)) {
-    const response = await openai.audio.speech.create({
-      model,
-      voice,
-      input: chunk,
-      response_format: 'mp3',
-      ...(withInstructions ? { instructions } : {}),
-    })
-    const buffer = Buffer.from(await response.arrayBuffer())
-    buffers.push(buffer)
-    if (durationSec !== null) {
-      const chunkDuration = await probeDurationSec(buffer)
-      durationSec = chunkDuration === null ? null : durationSec + chunkDuration
-    }
+  for (const part of parts) {
+    if (durationSec === null) break
+    durationSec = part.duration === null ? null : durationSec + part.duration
   }
 
   // Naive byte concatenation of mp3 segments: players decode frame-by-frame, so
