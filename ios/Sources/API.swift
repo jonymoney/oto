@@ -53,6 +53,9 @@ enum API {
     private static func request(_ path: String, method: String = "GET", auth: Bool = true) -> URLRequest {
         var req = URLRequest(url: Config.baseURL.appendingPathComponent(path))
         req.httpMethod = method
+        // Better Auth rejects Origin-less POSTs (CSRF guard). Native URLSession
+        // sends none, so set our own origin — it's in the server's trustedOrigins.
+        req.setValue(Config.baseURL.absoluteString, forHTTPHeaderField: "Origin")
         let hasToken = auth && TokenStore.token != nil
         if hasToken, let token = TokenStore.token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
