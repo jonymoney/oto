@@ -87,20 +87,21 @@ enum API {
 
     // MARK: Auth
 
-    static func sendMagicLink(email: String) async throws {
-        var req = request("api/auth/sign-in/magic-link", method: "POST", auth: false)
+    static func sendEmailOTP(email: String) async throws {
+        var req = request("api/auth/email-otp/send-verification-otp", method: "POST", auth: false)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(["email": email])
+        req.httpBody = try JSONEncoder().encode(["email": email, "type": "sign-in"])
         _ = try await send(req)
     }
 
-    /// Exchanges the single-use magic-link token for a session bearer.
-    static func verifyMagicLink(token: String) async throws -> String {
-        let req = request("api/auth/magic-link/verify?token=\(token)", auth: false)
-        let (data, http) = try await send(req, followRedirects: false)
-        // Better Auth's bearer plugin returns the session token in this header.
+    /// Verifies the 6-digit code and returns the session bearer. This is a plain
+    /// 200 JSON response (no redirect), so set-auth-token arrives cleanly.
+    static func signInWithOTP(email: String, otp: String) async throws -> String {
+        var req = request("api/auth/sign-in/email-otp", method: "POST", auth: false)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["email": email, "otp": otp])
+        let (data, http) = try await send(req)
         if let t = http.value(forHTTPHeaderField: "set-auth-token"), !t.isEmpty { return t }
-        // Fallback: some responses carry it in the JSON body as `token`.
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let t = obj["token"] as? String, !t.isEmpty { return t }
         throw APIError.badResponse

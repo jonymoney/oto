@@ -8,9 +8,7 @@ struct OtoApp: App {
         WindowGroup {
             RootView()
                 .environment(auth)
-                .onOpenURL { url in
-                    Task { await auth.handleDeepLink(url) }
-                }
+                .tint(Theme.accent)
         }
     }
 }
