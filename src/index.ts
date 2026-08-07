@@ -7,7 +7,7 @@ import { config } from './config.js'
 import { initDb, closeDb } from './db.js'
 import { buildServer } from './mcp.js'
 import { toNodeHandler } from 'better-auth/node'
-import { authMiddleware, wellKnownRouter } from './auth.js'
+import { authMiddleware, apiAuthMiddleware, wellKnownRouter } from './auth.js'
 import { auth } from './better-auth.js'
 import { consentRouter } from './consent.js'
 import { apiRouter } from './api.js'
@@ -95,8 +95,9 @@ app.get('/auth/callback', (_req, res) => {
 app.use(wellKnownRouter())
 app.use(consentRouter())
 
-// REST JSON API for native clients (iOS), same Bearer auth as /mcp.
-app.use('/api', authMiddleware(), apiRouter())
+// REST JSON API for native clients (iOS). Validates the Better Auth session
+// bearer via getSession — NOT the JWT path /mcp uses.
+app.use('/api', apiAuthMiddleware(), apiRouter())
 
 // Stateless Streamable HTTP: a fresh server + transport per request. Survives
 // restarts/replicas and avoids long-lived SSE streams hitting Railway's

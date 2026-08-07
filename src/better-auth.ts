@@ -28,8 +28,13 @@ export const auth = betterAuth({
   // Reuse the app's pg pool; Better Auth uses its built-in Kysely adapter.
   database: pool,
   trustedOrigins: config.authTrustedOrigins,
-  // Preserve Supabase UUIDs so audios.user_id / usage_counters.user_id stay valid.
-  advanced: { database: { generateId: 'uuid' } },
+  advanced: {
+    // Preserve Supabase UUIDs so audios.user_id / usage_counters.user_id stay valid.
+    database: { generateId: 'uuid' },
+    // Behind Railway's proxy the client IP is in x-forwarded-for; without this,
+    // rate limiting falls back to a single shared bucket for everyone.
+    ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
+  },
   // Sliding 30-day session (refreshed daily on use).
   session: { expiresIn: THIRTY_DAYS, updateAge: 60 * 60 * 24 },
   user: {

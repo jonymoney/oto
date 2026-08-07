@@ -1,10 +1,12 @@
 import type { RequestHandler } from 'express'
 import { Router } from 'express'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { fromNodeHeaders } from 'better-auth/node'
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js'
 import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
 import { config } from './config.js'
+import { auth } from './better-auth.js'
 
 const DEV_USER_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -58,6 +60,39 @@ export function authMiddleware(): RequestHandler {
   }
   const resourceMetadataUrl = `${new URL(config.MCP_SERVER_URL).origin}/.well-known/oauth-protected-resource`
   return requireBearerAuth({ verifier: { verifyAccessToken }, resourceMetadataUrl })
+}
+
+/**
+ * Bearer-token auth for the REST /api (iOS app). The app's bearer is a Better
+ * Auth SESSION token (opaque, not a JWT), so it's validated via getSession —
+ * NOT the JWKS/JWT path that /mcp uses for OAuth access tokens. Sets req.auth in
+ * the same shape so userIdFrom/authUserFrom and the /api handlers are unchanged.
+ */
+export function apiAuthMiddleware(): RequestHandler {
+  if (config.AUTH_MODE === 'disabled') {
+    return (req, _res, next) => {
+      req.auth = { token: 'dev', clientId: 'dev', scopes: [], extra: { userId: DEV_USER_ID } }
+      next()
+    }
+  }
+  return async (req, res, next) => {
+    try {
+      const result = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) })
+      if (!result?.user) {
+        res.status(401).json({ error: 'Unauthorized' })
+        return
+      }
+      req.auth = {
+        token: 'session',
+        clientId: 'oto-app',
+        scopes: [],
+        extra: { userId: result.user.id, email: result.user.email },
+      }
+      next()
+    } catch {
+      res.status(401).json({ error: 'Unauthorized' })
+    }
+  }
 }
 
 /** RFC 9728 OAuth Protected Resource Metadata. */
