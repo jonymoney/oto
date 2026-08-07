@@ -46,26 +46,30 @@ struct PlayerView: View {
         VStack(spacing: 24) {
             Spacer()
             Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 96)).foregroundStyle(.tint)
+                .font(.system(size: 96)).foregroundStyle(Theme.accent)
             Text(item.title).font(.title2).bold().multilineTextAlignment(.center)
-            Text(item.voice).foregroundStyle(.secondary)
+                .foregroundStyle(Theme.ink)
+            Text(item.voice).foregroundStyle(Theme.ink2)
 
             if model.loading {
                 ProgressView()
             } else if let err = model.errorMessage {
-                Text(err).foregroundStyle(.red)
+                Text(err).foregroundStyle(Theme.danger)
             } else {
                 Button {
                     model.toggle()
                 } label: {
                     Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 72))
+                        .foregroundStyle(Theme.accent)
                 }
                 .disabled(model.detail?.audioUrl == nil)
             }
             Spacer()
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg)
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(id: item.id, auth: auth) }

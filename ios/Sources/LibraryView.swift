@@ -37,18 +37,21 @@ struct LibraryView: View {
                     List(model.items) { item in
                         NavigationLink(value: item) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(item.title).lineLimit(1)
+                                Text(item.title).lineLimit(1).foregroundStyle(Theme.ink)
                                 HStack(spacing: 8) {
                                     Text(item.voice)
                                     if let d = item.durationSec { Text(timecode(d)) }
-                                    if item.status != "ready" { Text(item.status).foregroundStyle(.orange) }
+                                    if item.status != "ready" { Text(item.status).foregroundStyle(Theme.accent) }
                                 }
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(Theme.ink2)
                             }
                         }
+                        .listRowBackground(Theme.surface)
                     }
+                    .scrollContentBackground(.hidden)
                 }
             }
+            .background(Theme.bg)
             .navigationTitle("oto")
             .navigationDestination(for: AudioItem.self) { PlayerView(item: $0) }
             .toolbar {
@@ -60,7 +63,7 @@ struct LibraryView: View {
             .task { await model.load(auth: auth) }
             .overlay(alignment: .bottom) {
                 if let err = model.errorMessage {
-                    Text(err).font(.footnote).foregroundStyle(.red).padding()
+                    Text(err).font(.footnote).foregroundStyle(Theme.danger).padding()
                 }
             }
         }

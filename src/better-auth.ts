@@ -9,6 +9,7 @@ import {
 import { pool } from './db.js'
 import { config } from './config.js'
 import { sendEmail } from './senders.js'
+import { renderEmail, otpCodeBlock } from './email-template.js'
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30
 const FIFTEEN_MIN = 60 * 15
@@ -61,7 +62,13 @@ export const auth = betterAuth({
         await sendEmail(
           email,
           'Your oto sign-in link',
-          `<p>Tap to sign in to oto:</p><p><a href="${link}">Sign in</a></p><p>This link expires in 15 minutes and can be used once.</p>`,
+          renderEmail({
+            heading: 'Sign in to oto',
+            bodyHtml: '<p style="margin:0;">Tap the button below to sign in to oto.</p>',
+            ctaLabel: 'Sign in',
+            ctaUrl: link,
+            footnote: 'This link expires in 15 minutes and can be used once. If you didn&rsquo;t request it, you can ignore this email.',
+          }),
         )
       },
     }),
@@ -74,7 +81,11 @@ export const auth = betterAuth({
         await sendEmail(
           email,
           'Your oto verification code',
-          `<p>Your oto code is <strong>${otp}</strong>. It expires in 15 minutes.</p>`,
+          renderEmail({
+            heading: 'Your verification code',
+            bodyHtml: `<p style="margin:0;">Enter this code to sign in to oto.</p>${otpCodeBlock(otp)}`,
+            footnote: 'This code expires in 15 minutes. If you didn&rsquo;t request it, you can ignore this email.',
+          }),
         )
       },
     }),
