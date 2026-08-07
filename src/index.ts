@@ -6,10 +6,19 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { config } from './config.js'
 import { initDb, closeDb } from './db.js'
 import { buildServer } from './mcp.js'
+import { toNodeHandler } from 'better-auth/node'
 import { authMiddleware, wellKnownRouter } from './auth.js'
+import { auth } from './better-auth.js'
 import { consentRouter } from './consent.js'
+import { apiRouter } from './api.js'
 
 const app = express()
+
+// Better Auth owns /api/auth/*. It MUST be mounted before express.json() (it
+// reads the raw request body) and before the Bearer-protected /api router
+// (it has to issue a session before one can exist). Express 4 wildcard syntax.
+app.all('/api/auth/*', toNodeHandler(auth))
+
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/health', (_req, res) => {
@@ -53,6 +62,9 @@ app.get('/', (_req, res) => {
 
 app.use(wellKnownRouter())
 app.use(consentRouter())
+
+// REST JSON API for native clients (iOS), same Bearer auth as /mcp.
+app.use('/api', authMiddleware(), apiRouter())
 
 // Stateless Streamable HTTP: a fresh server + transport per request. Survives
 // restarts/replicas and avoids long-lived SSE streams hitting Railway's

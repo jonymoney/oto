@@ -13,13 +13,15 @@ const jwks = createRemoteJWKSet(new URL(config.jwksUrl))
 async function verifyAccessToken(token: string): Promise<AuthInfo> {
   let payload
   try {
-    // Audience is deliberately not enforced: Supabase ignores RFC 8707 resource
-    // indicators and issues tokens with aud "authenticated" (documented limitation).
+    // Audience is deliberately not enforced: the JWT-endpoint token has aud =
+    // BETTER_AUTH_URL while an OAuth access token bound to a resource has aud =
+    // the resource (MCP_SERVER_URL). Both are trusted here.
+    // ponytail: tighten to aud === MCP_SERVER_URL once verified against a real
+    // Claude MCP handshake.
     ;({ payload } = await jwtVerify(token, jwks, {
       issuer: config.issuer,
-      // Supabase signs with asymmetric keys (ES256 today); pin the accepted
-      // algorithm family to rule out any downgrade path.
-      algorithms: ['ES256', 'RS256'],
+      // Better Auth's jwt() plugin is pinned to ES256 (see src/better-auth.ts).
+      algorithms: ['ES256'],
     }))
   } catch (err) {
     throw new InvalidTokenError(err instanceof Error ? err.message : 'Token verification failed')
@@ -37,8 +39,8 @@ async function verifyAccessToken(token: string): Promise<AuthInfo> {
 }
 
 /**
- * Bearer-token auth for /mcp. In oauth mode, verifies Supabase JWTs against the
- * project JWKS and attaches AuthInfo to req.auth (which StreamableHTTPServerTransport
+ * Bearer-token auth for /mcp. In oauth mode, verifies Better Auth ES256 JWTs
+ * against its JWKS and attaches AuthInfo to req.auth (which StreamableHTTPServerTransport
  * forwards to tool callbacks as extra.authInfo). 401s carry a WWW-Authenticate header
  * pointing at the RFC 9728 protected-resource metadata.
  */
@@ -61,9 +63,16 @@ export function authMiddleware(): RequestHandler {
 /** RFC 9728 OAuth Protected Resource Metadata. */
 export function wellKnownRouter(): Router {
   const router = Router()
+  // Better Auth serves OAuth Authorization Server metadata (RFC 8414) under its
+  // handler mount. The issuer identifier is the auth base path; Claude appends
+  // /.well-known/oauth-authorization-server to discover the registration,
+  // authorize, and token endpoints.
+  // ponytail: confirm this exact issuer string against a live Claude handshake;
+  // adjust to whatever BA advertises as `issuer` in its AS metadata if it differs.
+  const authorizationServer = `${new URL(config.BETTER_AUTH_URL).origin}/api/auth`
   const metadata = {
     resource: config.MCP_SERVER_URL,
-    authorization_servers: [config.issuer],
+    authorization_servers: [authorizationServer],
     bearer_methods_supported: ['header'],
     resource_name: 'oto',
     scopes_supported: [],

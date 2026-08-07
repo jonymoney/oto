@@ -11,8 +11,21 @@ const EnvSchema = z.object({
   TTS_VOICE: z.string().default('coral'),
   TTS_FORMAT: z.literal('mp3').default('mp3'),
 
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
+  // ── Better Auth (self-hosted authorization server) ──────────────────────
+  // Public origin of this service — Better Auth's baseURL and JWT issuer.
+  BETTER_AUTH_URL: z.string().url(),
+  // Signing secret for sessions/tokens. Generate: openssl rand -base64 32
+  BETTER_AUTH_SECRET: z.string().min(1),
+  // Comma-separated extra origins allowed to call the auth handler (app schemes,
+  // web callback host). MCP_SERVER_URL/BETTER_AUTH_URL origins are added below.
+  AUTH_TRUSTED_ORIGINS: z.string().default(''),
+
+  // Email (Resend) — optional in dev; senders no-op without it.
+  RESEND_API_KEY: z.string().optional(),
+  AUTH_EMAIL_FROM: z.string().default('oto <auth@oto.app>'),
+  // Web handoff page the magic-link email points at; it deep-links the token to
+  // the iOS app so email-client previews don't burn the single-use token.
+  AUTH_WEB_CALLBACK_URL: z.string().url().optional(),
 
   DATABASE_URL: z.string().min(1),
 
@@ -42,12 +55,24 @@ if (env.AUTH_MODE === 'disabled' && process.env.RAILWAY_ENVIRONMENT) {
   throw new Error('AUTH_MODE=disabled is forbidden in Railway environments — unset it or use "oauth"')
 }
 
+const trustedOrigins = Array.from(
+  new Set(
+    [
+      new URL(env.BETTER_AUTH_URL).origin,
+      new URL(env.MCP_SERVER_URL).origin,
+      ...env.AUTH_TRUSTED_ORIGINS.split(',').map((s) => s.trim()),
+    ].filter(Boolean),
+  ),
+)
+
 export const config = {
   ...env,
-  /** OAuth issuer: Supabase Auth acts as the authorization server. */
-  issuer: `${env.SUPABASE_URL}/auth/v1`,
-  /** JWKS endpoint for stateless Bearer JWT verification (ES256). */
-  jwksUrl: `${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`,
+  /** OAuth issuer / JWT issuer: this service's own Better Auth server. */
+  issuer: env.BETTER_AUTH_URL,
+  /** JWKS endpoint for stateless Bearer JWT verification (Better Auth /jwks). */
+  jwksUrl: `${env.BETTER_AUTH_URL}/api/auth/jwks`,
+  /** Origins Better Auth trusts for auth requests (self + app + web callback). */
+  authTrustedOrigins: trustedOrigins,
   /** Lower-cased email set exempt from the generation quota. */
   quotaExemptEmails: new Set(
     env.QUOTA_EXEMPT_EMAILS.split(',')

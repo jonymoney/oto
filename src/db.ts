@@ -60,7 +60,8 @@ function sslFor(databaseUrl: string): { rejectUnauthorized: false } | undefined 
   return { rejectUnauthorized: false }
 }
 
-const pool = new Pool({
+// Exported so Better Auth (src/better-auth.ts) shares this one pool.
+export const pool = new Pool({
   connectionString: config.DATABASE_URL,
   max: 10,
   ssl: sslFor(config.DATABASE_URL),
@@ -118,6 +119,39 @@ export async function initDb(): Promise<void> {
       updated_at    timestamptz not null default now()
     )
   `)
+  await seedBetterAuthUsers()
+}
+
+// One-time bridge from the former Supabase auth users. Each row keeps its
+// original Supabase UUID so existing audios.user_id / usage_counters.user_id
+// stay valid with zero remap; email is the identity Better Auth signs in with.
+// Both accounts were email-confirmed in Supabase (no phone), so emailVerified=true.
+const SUPABASE_USER_SEED: ReadonlyArray<{ id: string; email: string }> = [
+  { id: '491ec598-f454-4ef7-a5b3-f0d1660bd823', email: 'ijonathanvs@gmail.com' },
+  { id: '638ad8c6-f387-467e-b7c0-16d7f17da1e3', email: 'iam@jony.money' },
+]
+
+/**
+ * Seeds the Better Auth `users` table from the Supabase export. Idempotent
+ * (on conflict do nothing). No-ops until `npx @better-auth/cli migrate` has
+ * created the Better Auth schema, so boot order never matters.
+ */
+async function seedBetterAuthUsers(): Promise<void> {
+  const { rows } = await pool.query<{ reg: string | null }>(
+    "select to_regclass('public.users') as reg",
+  )
+  if (!rows[0]?.reg) {
+    console.warn('Better Auth `users` table missing — run `npx @better-auth/cli migrate`; skipping user seed')
+    return
+  }
+  for (const u of SUPABASE_USER_SEED) {
+    await pool.query(
+      `insert into users (id, name, email, "emailVerified", "createdAt", "updatedAt")
+       values ($1, $2, $3, true, now(), now())
+       on conflict do nothing`,
+      [u.id, u.email, u.email],
+    )
+  }
 }
 
 export async function closeDb(): Promise<void> {
