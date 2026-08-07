@@ -60,6 +60,38 @@ app.get('/', (_req, res) => {
   res.type('html').send(landingHtml)
 })
 
+// Magic-link web handoff: the sign-in email points here (AUTH_WEB_CALLBACK_URL).
+// This page never spends the single-use token — it bounces it to the iOS app via
+// deep link, so only the app (not an email-client link preview) can consume it.
+const authCallbackHtml = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Opening oto…</title><link rel="icon" type="image/png" href="/icon.png">
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16130f;color:#e8e0d4;
+       font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}
+  main{padding:2rem;max-width:30rem}h1{font-size:1.4rem}.led{color:#f5a623}
+  a{display:inline-block;margin-top:1rem;padding:.6rem 1.1rem;border:1px solid #f5a623;border-radius:6px;
+    color:#f5a623;text-decoration:none}p{color:#b8ad9c;line-height:1.6}
+</style></head><body><main>
+  <h1><span class="led">◉</span> oto</h1>
+  <p id="msg">Opening the oto app…</p>
+  <a id="open" href="#">Open oto</a>
+<script>
+  var t = new URLSearchParams(location.search).get('token');
+  if (t) {
+    var deep = 'otoaudio://auth-callback?token=' + encodeURIComponent(t);
+    document.getElementById('open').href = deep;
+    location.replace(deep); // auto-bounce; the button is the manual fallback
+  } else {
+    document.getElementById('msg').textContent = 'This sign-in link is missing its token.';
+    document.getElementById('open').style.display = 'none';
+  }
+</script></main></body></html>`
+app.get('/auth/callback', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.type('html').send(authCallbackHtml)
+})
+
 app.use(wellKnownRouter())
 app.use(consentRouter())
 

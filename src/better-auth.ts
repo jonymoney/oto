@@ -54,6 +54,10 @@ export const auth = betterAuth({
         const link = config.AUTH_WEB_CALLBACK_URL
           ? `${config.AUTH_WEB_CALLBACK_URL}?token=${encodeURIComponent(token)}`
           : url
+        // ponytail: with no Resend key the email can't send, so surface the link
+        // in the logs to unblock testing (e.g. against prod before Resend is set
+        // up). Remove once real email delivery is in place.
+        if (!config.RESEND_API_KEY) console.log(`[magic-link] ${email} -> ${link}`)
         await sendEmail(
           email,
           'Your oto sign-in link',
