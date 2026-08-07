@@ -45,24 +45,44 @@ enum API {
     private static func request(_ path: String, method: String = "GET", auth: Bool = true) -> URLRequest {
         var req = URLRequest(url: Config.baseURL.appendingPathComponent(path))
         req.httpMethod = method
-        if auth, let token = TokenStore.token {
+        let hasToken = auth && TokenStore.token != nil
+        if hasToken, let token = TokenStore.token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        Log.api.debug("→ \(method, privacy: .public) /\(path, privacy: .public) (bearer: \(hasToken, privacy: .public))")
         return req
     }
 
     private static func send(_ req: URLRequest, followRedirects: Bool = true) async throws -> (Data, HTTPURLResponse) {
-        let (data, resp): (Data, URLResponse)
-        if followRedirects {
-            (data, resp) = try await URLSession.shared.data(for: req)
-        } else {
-            (data, resp) = try await URLSession.shared.data(for: req, delegate: noRedirect)
+        let path = req.url?.path ?? "?"
+        do {
+            let (data, resp): (Data, URLResponse)
+            if followRedirects {
+                (data, resp) = try await URLSession.shared.data(for: req)
+            } else {
+                (data, resp) = try await URLSession.shared.data(for: req, delegate: noRedirect)
+            }
+            guard let http = resp as? HTTPURLResponse else {
+                Log.api.error("✗ \(path, privacy: .public): non-HTTP response")
+                throw APIError.badResponse
+            }
+            Log.api.debug("← \(http.statusCode, privacy: .public) \(path, privacy: .public) (\(data.count, privacy: .public) bytes)")
+            let isAuthPath = req.url?.path.hasPrefix("/api/auth") ?? false
+            if http.statusCode == 401 && !isAuthPath {
+                Log.api.notice("✗ 401 on \(path, privacy: .public) — session expired")
+                throw APIError.unauthorized
+            }
+            guard (200..<400).contains(http.statusCode) else {
+                Log.api.error("✗ \(http.statusCode, privacy: .public) on \(path, privacy: .public): \(String(decoding: data, as: UTF8.self), privacy: .public)")
+                throw APIError.http(http.statusCode)
+            }
+            return (data, http)
+        } catch let error where !(error is APIError) {
+            // Transport failures (offline, TLS, host unreachable) — the most
+            // common "nothing happens" cause when pointing at prod.
+            Log.api.error("✗ \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            throw error
         }
-        guard let http = resp as? HTTPURLResponse else { throw APIError.badResponse }
-        let isAuthPath = req.url?.path.hasPrefix("/api/auth") ?? false
-        if http.statusCode == 401 && !isAuthPath { throw APIError.unauthorized }
-        guard (200..<400).contains(http.statusCode) else { throw APIError.http(http.statusCode) }
-        return (data, http)
     }
 
     // MARK: Auth
