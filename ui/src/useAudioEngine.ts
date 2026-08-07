@@ -17,7 +17,11 @@ export interface EngineState {
   /** Loading metadata, buffering, or refreshing an expired URL. */
   busy: boolean
   error: string | null
+  /** Playback rate multiplier (1 = normal). */
+  speed: number
 }
+
+export const SPEEDS: readonly number[] = [1, 1.25, 1.5, 2]
 
 export interface AudioEngine {
   state: EngineState
@@ -27,6 +31,7 @@ export interface AudioEngine {
   toggle: () => void
   pause: () => void
   seek: (seconds: number) => void
+  setSpeed: (rate: number) => void
   retry: () => void
 }
 
@@ -37,6 +42,7 @@ const IDLE: EngineState = {
   duration: null,
   busy: false,
   error: null,
+  speed: 1,
 }
 
 export function useAudioEngine(app: App | null): AudioEngine {
@@ -49,6 +55,9 @@ export function useAudioEngine(app: App | null): AudioEngine {
   const lastPositionRef = useRef(0)
   const lastRefreshRef = useRef(0)
   const pendingResumeRef = useRef<{ at: number; play: boolean } | null>(null)
+  // playbackRate resets to defaultPlaybackRate on load(); keep it sticky across
+  // track changes and URL refreshes by re-applying on loadedmetadata.
+  const speedRef = useRef(1)
 
   const [state, setState] = useState<EngineState>(IDLE)
 
@@ -106,6 +115,8 @@ export function useAudioEngine(app: App | null): AudioEngine {
     }
     const onLoadedMetadata = () => {
       onDuration()
+      audio.defaultPlaybackRate = speedRef.current
+      audio.playbackRate = speedRef.current
       const pending = pendingResumeRef.current
       pendingResumeRef.current = null
       if (pending) {
@@ -234,13 +245,23 @@ export function useAudioEngine(app: App | null): AudioEngine {
     setState(s => ({ ...s, position: clamped }))
   }, [])
 
+  const setSpeed = useCallback((rate: number) => {
+    speedRef.current = rate
+    const audio = audioRef.current
+    if (audio) {
+      audio.defaultPlaybackRate = rate
+      audio.playbackRate = rate
+    }
+    setState(s => ({ ...s, speed: rate }))
+  }, [])
+
   const retry = useCallback(() => {
     lastRefreshRef.current = 0
     void recover()
   }, [recover])
 
   return useMemo(
-    () => ({ state, audioRef, load, unload, toggle, pause, seek, retry }),
-    [state, load, unload, toggle, pause, seek, retry],
+    () => ({ state, audioRef, load, unload, toggle, pause, seek, setSpeed, retry }),
+    [state, load, unload, toggle, pause, seek, setSpeed, retry],
   )
 }

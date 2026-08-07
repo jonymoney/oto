@@ -1,6 +1,6 @@
 import type { PlayerPayload } from '../../../src/types'
 import { formatTimecode, relativeDate } from '../format'
-import type { AudioEngine } from '../useAudioEngine'
+import { SPEEDS, type AudioEngine } from '../useAudioEngine'
 import { PauseIcon, PlayIcon } from './Icons'
 import { OtoMark } from './Mark'
 import { Waveform } from './Waveform'
@@ -68,6 +68,14 @@ export function PlayerView({ track, engine, pulse = false, onClose, onHistory, o
           <span className="oto-clock-sep">/</span>
           <span>{formatTimecode(duration)}</span>
         </div>
+        <button
+          type="button"
+          className="oto-ghost oto-speed"
+          onClick={() => engine.setSpeed(SPEEDS[(SPEEDS.indexOf(state.speed) + 1) % SPEEDS.length])}
+          aria-label={`Playback speed ${state.speed}×`}
+        >
+          {state.speed}×
+        </button>
       </div>
 
       {state.error && (
