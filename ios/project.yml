@@ -1,0 +1,38 @@
+name: oto
+options:
+  bundleIdPrefix: audio.oto
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+targets:
+  oto:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: audio.oto.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1" # iPhone
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: oto
+        UILaunchScreen: {}
+        # Deep link the magic-link web handoff bounces the session token to.
+        CFBundleURLTypes:
+          - CFBundleURLName: audio.oto.app
+            CFBundleURLSchemes: [otoaudio]
+        # Dev only: allow http to the local server. Production talks https to
+        # oto.audio and needs no exception — tighten/remove before shipping.
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+        # Background audio so playback continues when the screen locks.
+        UIBackgroundModes: [audio]
