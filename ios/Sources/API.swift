@@ -27,7 +27,7 @@ struct AudioDetail: Decodable {
 
 enum APIError: Error {
     case unauthorized          // 401 outside /api/auth → session is dead
-    case http(Int)
+    case server(String)        // 4xx/5xx: carries the server's own error message
     case badResponse
 }
 
@@ -41,6 +41,14 @@ enum API {
                         willPerformHTTPRedirection r: HTTPURLResponse, newRequest: URLRequest) async -> URLRequest? { nil }
     }
     private static let noRedirect = NoRedirect()
+
+    // Better Auth errors come back as JSON like {"message":"..."} / {"error":"..."}.
+    private static func serverMessage(from data: Data) -> String? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let m = obj["message"] as? String, !m.isEmpty { return m }
+        if let e = obj["error"] as? String, !e.isEmpty { return e }
+        return nil
+    }
 
     private static func request(_ path: String, method: String = "GET", auth: Bool = true) -> URLRequest {
         var req = URLRequest(url: Config.baseURL.appendingPathComponent(path))
@@ -74,7 +82,7 @@ enum API {
             }
             guard (200..<400).contains(http.statusCode) else {
                 Log.api.error("✗ \(http.statusCode, privacy: .public) on \(path, privacy: .public): \(String(decoding: data, as: UTF8.self), privacy: .public)")
-                throw APIError.http(http.statusCode)
+                throw APIError.server(serverMessage(from: data) ?? "Something went wrong (\(http.statusCode)).")
             }
             return (data, http)
         } catch let error where !(error is APIError) {

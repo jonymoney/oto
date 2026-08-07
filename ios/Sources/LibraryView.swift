@@ -24,6 +24,7 @@ final class LibraryModel {
 struct LibraryView: View {
     @Environment(AuthManager.self) private var auth
     @State private var model = LibraryModel()
+    @State private var confirmingSignOut = false
 
     var body: some View {
         NavigationStack {
@@ -56,8 +57,14 @@ struct LibraryView: View {
             .navigationDestination(for: AudioItem.self) { PlayerView(item: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Sign out") { Task { await auth.signOut() } }
+                    Button("Sign out") { confirmingSignOut = true }
                 }
+            }
+            .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+                Button("Sign out", role: .destructive) { Task { await auth.logout() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll need to sign in again to get back in.")
             }
             .refreshable { await model.load(auth: auth) }
             .task { await model.load(auth: auth) }
