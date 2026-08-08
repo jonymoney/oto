@@ -7,18 +7,27 @@ final class PlayerModel {
     var detail: AudioDetail?
     var loading = true
     var errorMessage: String?
+    private(set) var hasAudio = false
     private var player: AVPlayer?
     private(set) var playing = false
 
     func load(id: String, auth: AuthManager) async {
         loading = true; errorMessage = nil
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        // Downloaded → play the local file, offline and instant; skip the fetch.
+        if let local = Downloads.shared.localURL(id) {
+            player = AVPlayer(url: local)
+            hasAudio = true
+            loading = false
+            return
+        }
         do {
             let d = try await API.audioDetail(id: id)
             detail = d
             if let urlStr = d.audioUrl, let url = URL(string: urlStr) {
-                try? AVAudioSession.sharedInstance().setCategory(.playback)
-                try? AVAudioSession.sharedInstance().setActive(true)
                 player = AVPlayer(url: url)
+                hasAudio = true
             }
         } catch APIError.unauthorized {
             auth.sessionExpired()
@@ -78,7 +87,7 @@ struct PlayerView: View {
                         .font(.system(size: 72))
                         .foregroundStyle(Theme.accent)
                 }
-                .disabled(model.detail?.audioUrl == nil)
+                .disabled(!model.hasAudio)
             }
             Spacer()
         }

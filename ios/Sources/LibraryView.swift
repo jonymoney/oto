@@ -15,7 +15,14 @@ final class LibraryModel {
         } catch APIError.unauthorized {
             auth.sessionExpired()
         } catch {
-            errorMessage = "Couldn't load your audios."
+            // Truly offline (transport error, not 401): fall back to downloads.
+            let offline = Downloads.shared.items
+            if !offline.isEmpty {
+                items = offline
+                errorMessage = "Offline — showing downloads"
+            } else {
+                errorMessage = "Couldn't load your audios."
+            }
         }
         loading = false
     }
@@ -51,9 +58,23 @@ struct LibraryView: View {
                                     }
                                     .font(.caption).foregroundStyle(Theme.ink2)
                                 }
+                                Spacer(minLength: 8)
+                                DownloadAccessory(id: item.id)
                             }
                         }
                         .listRowBackground(Theme.surface)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            if Downloads.shared.isDownloaded(item.id) {
+                                Button("Remove", role: .destructive) {
+                                    Downloads.shared.remove(item.id)
+                                }
+                            } else {
+                                Button("Download") {
+                                    Task { await Downloads.shared.download(item) }
+                                }
+                                .tint(Theme.accent)
+                            }
+                        }
                     }
                     .scrollContentBackground(.hidden)
                 }
@@ -79,6 +100,25 @@ struct LibraryView: View {
                     Text(err).font(.footnote).foregroundStyle(Theme.danger).padding()
                 }
             }
+        }
+    }
+}
+
+/// Trailing download-state accessory: spinner while downloading, filled arrow
+/// when downloaded, faint hint otherwise. Reads the observable Downloads store.
+struct DownloadAccessory: View {
+    let id: String
+
+    var body: some View {
+        let downloads = Downloads.shared
+        // Touch `items` so the accessory re-renders on download/remove (both mutate it).
+        let _ = downloads.items.count
+        if downloads.inProgress.contains(id) {
+            ProgressView()
+        } else if downloads.isDownloaded(id) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+        } else {
+            Image(systemName: "arrow.down.circle").foregroundStyle(Theme.ink3)
         }
     }
 }

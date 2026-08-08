@@ -1,6 +1,6 @@
 import Foundation
 
-struct AudioItem: Identifiable, Decodable, Hashable {
+struct AudioItem: Identifiable, Codable, Hashable {
     let id: String
     let title: String
     let durationSec: Double?
