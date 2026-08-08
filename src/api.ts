@@ -15,6 +15,11 @@ function listItem(rec: AudioRecord) {
   return {
     id: rec.id,
     title: rec.title,
+    summary: rec.summary,
+    emoji: rec.emoji,
+    language: rec.language,
+    mood: rec.mood,
+    tags: rec.tags,
     durationSec: rec.durationSec,
     voice: rec.voice,
     charCount: rec.charCount,

@@ -102,9 +102,22 @@ const historyPayloadShape = {
   total: z.number(),
 }
 
+/** Trim an optional string; empty (or absent) becomes null. */
+function cleanStr(v: string | undefined): string | null {
+  const t = v?.trim()
+  return t ? t : null
+}
+
 function makeTitle(text: string): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length <= 60 ? line : `${line.slice(0, 57)}…`
+}
+
+/** Prefer a title the caller (Claude) supplies; fall back to the text snippet. */
+function resolveTitle(provided: string | undefined, text: string): string {
+  const t = provided?.replace(/\s+/g, ' ').trim()
+  if (!t) return makeTitle(text)
+  return t.length <= 80 ? t : `${t.slice(0, 77)}…`
 }
 
 function contentHash(text: string, voice: string, instructions?: string): string {
@@ -246,16 +259,55 @@ export function buildServer(): McpServer {
           .max(4000)
           .optional()
           .describe('Optional delivery directions: tone, accent, emotion, pacing'),
+        title: z
+          .string()
+          .max(80)
+          .optional()
+          .describe('A short, human-friendly title for this audio (a few words). If omitted, the start of the text is used.'),
+        summary: z
+          .string()
+          .max(280)
+          .optional()
+          .describe('A one-line synopsis of the audio, shown as the player/list subtitle.'),
+        emoji: z
+          .string()
+          .max(8)
+          .optional()
+          .describe('A single emoji that represents this audio.'),
+        language: z
+          .string()
+          .max(40)
+          .optional()
+          .describe('The detected language of the source text (e.g. "Spanish" or "es").'),
+        mood: z
+          .string()
+          .max(30)
+          .optional()
+          .describe('A one-word mood used to tint the generative cover: e.g. "calm", "energetic", "serious", "playful", "warm".'),
+        tags: z
+          .array(z.string().max(30))
+          .max(6)
+          .optional()
+          .describe('Up to 6 short topic tags for this audio.'),
       },
       // No outputSchema: the result is a union (PlayerPayload | ProcessingPayload)
       // that a flat zod shape can't express; structuredContent alone is valid.
       _meta: { ui: { resourceUri: PLAYER_URI } },
     },
-    async ({ text, voice, instructions }, extra) => {
+    async ({ text, voice, instructions, title, summary, emoji, language, mood, tags }, extra) => {
       try {
         const { userId, email } = authUserFrom(extra as ToolExtra)
         const cleanText = text.trim()
         if (!cleanText) return errorResult(new Error('Text is empty'))
+
+        // Metadata only — never folded into contentHash, so dedup is unaffected.
+        const meta = {
+          summary: cleanStr(summary),
+          emoji: cleanStr(emoji),
+          language: cleanStr(language),
+          mood: cleanStr(mood),
+          tags: (tags ?? []).map((t) => t.trim()).filter(Boolean),
+        }
 
         const resolvedVoice = resolveVoice(voice)
         const hash = contentHash(cleanText, resolvedVoice, instructions?.trim() || undefined)
@@ -325,7 +377,8 @@ export function buildServer(): McpServer {
             userId,
             textHash: hash,
             text: cleanText,
-            title: makeTitle(cleanText),
+            title: resolveTitle(title, cleanText),
+            ...meta,
             voice: resolvedVoice,
             model: config.TTS_MODEL,
             format: config.TTS_FORMAT,
@@ -376,7 +429,8 @@ export function buildServer(): McpServer {
           userId,
           textHash: hash,
           text: cleanText,
-          title: makeTitle(cleanText),
+          title: resolveTitle(title, cleanText),
+          ...meta,
           voice: result.voice,
           model: result.model,
           format: result.format,

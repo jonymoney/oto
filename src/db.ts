@@ -8,6 +8,11 @@ interface AudioRow {
   text_hash: string
   text: string
   title: string
+  summary: string | null
+  emoji: string | null
+  language: string | null
+  mood: string | null
+  tags: string[] | null
   voice: string
   model: string
   format: string
@@ -28,6 +33,11 @@ function mapRow(row: AudioRow): AudioRecord {
     textHash: row.text_hash,
     text: row.text,
     title: row.title,
+    summary: row.summary,
+    emoji: row.emoji,
+    language: row.language,
+    mood: row.mood,
+    tags: row.tags ?? [],
     voice: row.voice,
     model: row.model,
     format: row.format,
@@ -80,6 +90,11 @@ export async function initDb(): Promise<void> {
       text_hash    text not null,
       text         text not null,
       title        text not null,
+      summary      text,
+      emoji        text,
+      language     text,
+      mood         text,
+      tags         text[] not null default '{}',
       voice        text not null,
       model        text not null,
       format       text not null default 'mp3',
@@ -102,7 +117,12 @@ export async function initDb(): Promise<void> {
       add column if not exists chunks_total int,
       add column if not exists chunks_done int not null default 0,
       add column if not exists error_message text,
-      add column if not exists updated_at timestamptz not null default now()
+      add column if not exists updated_at timestamptz not null default now(),
+      add column if not exists summary text,
+      add column if not exists emoji text,
+      add column if not exists language text,
+      add column if not exists mood text,
+      add column if not exists tags text[] not null default '{}'
   `)
   await pool.query(`
     create index if not exists audios_user_id_created_at_idx
@@ -159,7 +179,7 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message'
+  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message'
 
 export const audioRepo = {
   async findByHash(userId: string, textHash: string): Promise<AudioRecord | null> {
@@ -178,9 +198,10 @@ export const audioRepo = {
   async insert(audio: NewAudio): Promise<{ rec: AudioRecord; created: boolean }> {
     const { rows } = await pool.query<AudioRow>(
       `insert into audios
-         (user_id, text_hash, text, title, voice, model, format, object_key, duration_sec, char_count,
+         (user_id, text_hash, text, title, summary, emoji, language, mood, tags,
+          voice, model, format, object_key, duration_sec, char_count,
           status, chunks_total, chunks_done, error_message)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        on conflict (user_id, text_hash) do nothing
        returning ${COLUMNS}`,
       [
@@ -188,6 +209,11 @@ export const audioRepo = {
         audio.textHash,
         audio.text,
         audio.title,
+        audio.summary,
+        audio.emoji,
+        audio.language,
+        audio.mood,
+        audio.tags,
         audio.voice,
         audio.model,
         audio.format,

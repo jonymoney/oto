@@ -14,6 +14,16 @@ export interface AudioRecord {
   text: string
   /** Display title: first ~60 chars of the source text. */
   title: string
+  /** Optional metadata supplied by Claude at generation time (not in the dedup hash). */
+  summary: string | null
+  /** A single emoji representing the audio. */
+  emoji: string | null
+  /** Detected language of the source text (e.g. "Spanish" or "es"). */
+  language: string | null
+  /** One-word mood used to tint the generative cover (e.g. "calm", "energetic"). */
+  mood: string | null
+  /** Up to ~6 short topic tags. */
+  tags: string[]
   voice: string
   model: string
   format: string
