@@ -10,6 +10,14 @@ const EnvSchema = z.object({
   TTS_MODEL: z.string().default('gpt-4o-mini-tts'),
   TTS_VOICE: z.string().default('coral'),
   TTS_FORMAT: z.literal('mp3').default('mp3'),
+  // TTS provider switch — 'openai' (default) or 'fish' (Fish Audio). Flip to
+  // 'fish' to ear-test Spanish/English/mixed against gpt-4o-mini-tts.
+  TTS_PROVIDER: z.enum(['openai', 'fish']).default('openai'),
+  // Fish Audio (https://fish.audio) — required only when TTS_PROVIDER=fish.
+  FISH_API_KEY: z.string().optional(),
+  FISH_MODEL: z.string().default('s2.1-pro'),
+  // Optional Fish voice/reference model id; falls back to the model default.
+  FISH_REFERENCE_ID: z.string().optional(),
 
   // ── Better Auth (self-hosted authorization server) ──────────────────────
   // Public origin of this service — Better Auth's baseURL and JWT issuer.
@@ -47,6 +55,12 @@ const EnvSchema = z.object({
   QUOTA_EXEMPT_EMAILS: z.string().default(''),
   // Where the "generation limit reached" upsell points (web Stripe checkout).
   UPGRADE_URL: z.string().url().default('https://oto.audio/upgrade'),
+
+  // ── Billing (Stripe) — optional; billing routes 501 until all three are set ──
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Price id of the recurring "oto unlimited" subscription product.
+  STRIPE_PRICE_ID: z.string().optional(),
 })
 
 const env = EnvSchema.parse(process.env)
@@ -81,6 +95,8 @@ export const config = {
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
   ),
+  /** True only when every Stripe secret is present; billing routes gate on it. */
+  billingEnabled: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && env.STRIPE_PRICE_ID),
 }
 
 export type Config = typeof config

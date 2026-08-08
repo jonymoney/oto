@@ -11,6 +11,7 @@ import { authMiddleware, apiAuthMiddleware, wellKnownRouter } from './auth.js'
 import { auth } from './better-auth.js'
 import { consentRouter } from './consent.js'
 import { apiRouter } from './api.js'
+import { handleWebhookEvent } from './billing.js'
 
 const app = express()
 
@@ -18,6 +19,23 @@ const app = express()
 // reads the raw request body) and before the Bearer-protected /api router
 // (it has to issue a session before one can exist). Express 4 wildcard syntax.
 app.all('/api/auth/*', toNodeHandler(auth))
+
+// Stripe webhook — MUST be before express.json(): signature verification needs
+// the exact raw body. Not behind auth (Stripe calls it directly).
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature']
+  if (typeof sig !== 'string') {
+    res.status(400).send('Missing stripe-signature')
+    return
+  }
+  try {
+    await handleWebhookEvent(req.body as Buffer, sig)
+    res.status(200).json({ received: true })
+  } catch (err) {
+    console.error('Stripe webhook failed:', err)
+    res.status(400).send('Webhook error')
+  }
+})
 
 app.use(express.json({ limit: '1mb' }))
 
@@ -90,6 +108,14 @@ const authCallbackHtml = `<!doctype html>
 app.get('/auth/callback', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   res.type('html').send(authCallbackHtml)
+})
+
+// Web checkout page for Claude-connector users (no native app): email-OTP
+// sign-in, then POST /api/billing/checkout and bounce to Stripe.
+const upgradeHtml = readFileSync(path.join(publicDir, 'upgrade.html'))
+app.get('/upgrade', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.type('html').send(upgradeHtml)
 })
 
 app.use(wellKnownRouter())

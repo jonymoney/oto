@@ -139,6 +139,12 @@ export async function initDb(): Promise<void> {
       updated_at    timestamptz not null default now()
     )
   `)
+  // Stripe billing columns (no-op once applied).
+  await pool.query(`
+    alter table usage_counters
+      add column if not exists stripe_customer_id  text,
+      add column if not exists subscription_status text
+  `)
   await seedBetterAuthUsers()
 }
 
@@ -351,5 +357,45 @@ export const usageRepo = {
                      updated_at = now()`,
       [userId, email ?? null, seconds],
     )
+  },
+
+  /** Flip the per-user unlimited flag (upserts the row if it doesn't exist yet). */
+  async setUnlimited(userId: string, unlimited: boolean): Promise<void> {
+    await pool.query(
+      `insert into usage_counters (user_id, unlimited, updated_at)
+       values ($1, $2, now())
+       on conflict (user_id)
+       do update set unlimited = excluded.unlimited, updated_at = now()`,
+      [userId, unlimited],
+    )
+  },
+
+  /** Record the Stripe customer id for this user (upserts). */
+  async linkStripeCustomer(userId: string, customerId: string): Promise<void> {
+    await pool.query(
+      `insert into usage_counters (user_id, stripe_customer_id, updated_at)
+       values ($1, $2, now())
+       on conflict (user_id)
+       do update set stripe_customer_id = excluded.stripe_customer_id, updated_at = now()`,
+      [userId, customerId],
+    )
+  },
+
+  /** Update subscription status + unlimited for the row matching a Stripe customer. */
+  async setSubscriptionStatus(customerId: string, status: string, unlimited: boolean): Promise<void> {
+    await pool.query(
+      `update usage_counters
+          set subscription_status = $2, unlimited = $3, updated_at = now()
+        where stripe_customer_id = $1`,
+      [customerId, status, unlimited],
+    )
+  },
+
+  async findByStripeCustomer(customerId: string): Promise<{ userId: string } | null> {
+    const { rows } = await pool.query<{ user_id: string }>(
+      'select user_id from usage_counters where stripe_customer_id = $1',
+      [customerId],
+    )
+    return rows[0] ? { userId: rows[0].user_id } : null
   },
 }

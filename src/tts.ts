@@ -132,10 +132,15 @@ async function synthesizeAll(
   const input = text.trim()
   if (!input) throw new Error('Cannot synthesize speech from empty text')
 
-  const model = config.TTS_MODEL
-  const voice = resolveVoice(opts.voice)
+  // ponytail: Fish Audio behind TTS_PROVIDER for the ear-test spike vs gpt-4o-mini-tts.
+  const fish = config.TTS_PROVIDER === 'fish'
+  // For Fish, "voice" is the reference id (VOICES is OpenAI-specific); model comes from FISH_MODEL.
+  const model = fish ? config.FISH_MODEL : config.TTS_MODEL
+  const voice = fish
+    ? (config.FISH_REFERENCE_ID ?? config.FISH_MODEL)
+    : resolveVoice(opts.voice)
   const instructions = opts.instructions?.trim()
-  const withInstructions = instructions && !MODELS_WITHOUT_INSTRUCTIONS.has(model)
+  const withInstructions = !fish && instructions && !MODELS_WITHOUT_INSTRUCTIONS.has(model)
 
   const chunks = chunkText(input)
   let done = 0
@@ -148,14 +153,13 @@ async function synthesizeAll(
   const parts = await Promise.all(
     chunks.map((chunk) =>
       (async () => {
-        const response = await openai.audio.speech.create({
-          model,
-          voice,
-          input: chunk,
-          response_format: 'mp3',
-          ...(withInstructions ? { instructions } : {}),
-        })
-        const buffer = Buffer.from(await response.arrayBuffer())
+        const buffer = fish
+          ? await fishSynthChunk(chunk)
+          : await openaiSynthChunk(chunk, {
+              model,
+              voice,
+              ...(withInstructions ? { instructions } : {}),
+            })
         return { buffer, duration: await probeDurationSec(buffer) }
       })().then((part) => {
         done += 1
@@ -184,6 +188,44 @@ async function synthesizeAll(
     voice,
     format: 'mp3',
   }
+}
+
+async function openaiSynthChunk(
+  chunk: string,
+  opts: { model: string; voice: string; instructions?: string },
+): Promise<Buffer> {
+  const response = await openai.audio.speech.create({
+    model: opts.model,
+    voice: opts.voice,
+    input: chunk,
+    response_format: 'mp3',
+    ...(opts.instructions ? { instructions: opts.instructions } : {}),
+  })
+  return Buffer.from(await response.arrayBuffer())
+}
+
+// Fish selects the model via an HTTP header named `model`; the voice is `reference_id`.
+async function fishSynthChunk(chunk: string): Promise<Buffer> {
+  if (!config.FISH_API_KEY) throw new Error('TTS_PROVIDER=fish but FISH_API_KEY is not set')
+  const response = await fetch('https://api.fish.audio/v1/tts', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.FISH_API_KEY}`,
+      'Content-Type': 'application/json',
+      model: config.FISH_MODEL,
+    },
+    body: JSON.stringify({
+      text: chunk,
+      format: 'mp3',
+      mp3_bitrate: 128,
+      ...(config.FISH_REFERENCE_ID ? { reference_id: config.FISH_REFERENCE_ID } : {}),
+    }),
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`Fish Audio TTS failed (${response.status}): ${detail}`)
+  }
+  return Buffer.from(await response.arrayBuffer())
 }
 
 async function probeDurationSec(audio: Buffer): Promise<number | null> {

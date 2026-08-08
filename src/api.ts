@@ -2,8 +2,9 @@ import { Router } from 'express'
 import type { RequestHandler } from 'express'
 import { audioRepo, usageRepo } from './db.js'
 import { presignAudioUrl, deleteAudioObject } from './storage.js'
-import { userIdFrom } from './auth.js'
+import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
+import { createCheckoutSession } from './billing.js'
 import type { AudioRecord } from './types.js'
 
 // REST JSON API for native clients (iOS). Mounts behind the same
@@ -106,6 +107,18 @@ export function apiRouter(): Router {
       ])
       const quotaSec = config.QUOTA_MINUTES * 60
       res.json({ generatedSec, quotaSec, unlimited: unlimited || quotaSec === 0 })
+    }),
+  )
+
+  // Start a Stripe Checkout for the "unlimited" subscription. 501 until billing
+  // is configured. Returns the hosted Checkout URL for the client to redirect to.
+  router.post(
+    '/billing/checkout',
+    wrap(async (req, res) => {
+      if (!config.billingEnabled) return res.status(501).json({ error: 'Billing not configured' })
+      const { userId, email } = authUserFrom({ authInfo: req.auth })
+      const url = await createCheckoutSession(userId, email)
+      res.json({ url })
     }),
   )
 

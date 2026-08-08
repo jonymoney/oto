@@ -139,7 +139,14 @@ struct UsageMeter: View {
                         .font(.subheadline.weight(.medium).monospacedDigit())
                         .foregroundStyle(atLimit ? Theme.danger : Theme.ink)
                     Spacer()
-                    Button("Upgrade") { openURL(URL(string: "https://oto.audio/upgrade")!) }
+                    Button("Upgrade") {
+                        Task {
+                            // App users are already signed in — go straight to
+                            // Stripe. Fall back to the web page if billing is off.
+                            if let url = try? await API.checkout() { openURL(url) }
+                            else { openURL(URL(string: "https://oto.audio/upgrade")!) }
+                        }
+                    }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.accent)
                 }

@@ -204,4 +204,18 @@ enum API {
         let (data, _) = try await send(request("api/usage"))
         return try JSONDecoder().decode(Usage.self, from: data)
     }
+
+    // MARK: Billing
+
+    private struct CheckoutURL: Decodable { let url: String }
+
+    /// Starts a Stripe Checkout for the signed-in user and returns the hosted
+    /// URL to open. Throws if billing is unconfigured (501) — caller falls back
+    /// to the web /upgrade page.
+    static func checkout() async throws -> URL {
+        let (data, _) = try await send(request("api/billing/checkout", method: "POST"))
+        let str = try JSONDecoder().decode(CheckoutURL.self, from: data).url
+        guard let url = URL(string: str) else { throw APIError.badResponse }
+        return url
+    }
 }
