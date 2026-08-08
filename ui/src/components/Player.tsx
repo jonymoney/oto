@@ -1,6 +1,7 @@
 import type { PlayerPayload } from '../../../src/types'
 import { formatTimecode, relativeDate } from '../format'
 import { SPEEDS, type AudioEngine } from '../useAudioEngine'
+import { Cover } from './Cover'
 import { PauseIcon, PlayIcon } from './Icons'
 import { OtoMark } from './Mark'
 import { Waveform } from './Waveform'
@@ -32,17 +33,23 @@ export function PlayerView({ track, engine, pulse = false, onClose, onHistory, o
         </button>
       </header>
 
-      <h1 className="oto-title" title={track.title}>
-        {track.title}
-      </h1>
-      <div className="oto-meta">
-        <span className="oto-chip">{track.voice}</span>
-        <span>{relativeDate(track.createdAt)}</span>
-        {track.deduped && (
-          <span className="oto-tag" title="Replayed from your library — not regenerated">
-            library
-          </span>
-        )}
+      <div className="oto-head">
+        <Cover id={track.id} mood={track.mood} emoji={track.emoji} size={64} className="oto-cover-lg" />
+        <div className="oto-head-text">
+          <h1 className="oto-title" title={track.title}>
+            {track.title}
+          </h1>
+          {track.summary && <p className="oto-sub">{track.summary}</p>}
+          <div className="oto-meta">
+            <span className="oto-chip">{track.voice}</span>
+            <span>{relativeDate(track.createdAt)}</span>
+            {track.deduped && (
+              <span className="oto-tag" title="Replayed from your library — not regenerated">
+                library
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="oto-transport">

@@ -8,6 +8,31 @@ struct AudioItem: Identifiable, Decodable, Hashable {
     let charCount: Int
     let createdAt: String
     let status: String
+    let summary: String?
+    let emoji: String?
+    let language: String?
+    let mood: String?
+    let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        durationSec = try c.decodeIfPresent(Double.self, forKey: .durationSec)
+        voice = try c.decode(String.self, forKey: .voice)
+        charCount = try c.decode(Int.self, forKey: .charCount)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        status = try c.decode(String.self, forKey: .status)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        emoji = try c.decodeIfPresent(String.self, forKey: .emoji)
+        language = try c.decodeIfPresent(String.self, forKey: .language)
+        mood = try c.decodeIfPresent(String.self, forKey: .mood)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
 }
 
 struct AudioList: Decodable {
@@ -23,6 +48,31 @@ struct AudioDetail: Decodable {
     let createdAt: String
     let status: String
     let audioUrl: String?
+    let summary: String?
+    let emoji: String?
+    let language: String?
+    let mood: String?
+    let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        durationSec = try c.decodeIfPresent(Double.self, forKey: .durationSec)
+        voice = try c.decode(String.self, forKey: .voice)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        status = try c.decode(String.self, forKey: .status)
+        audioUrl = try c.decodeIfPresent(String.self, forKey: .audioUrl)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        emoji = try c.decodeIfPresent(String.self, forKey: .emoji)
+        language = try c.decodeIfPresent(String.self, forKey: .language)
+        mood = try c.decodeIfPresent(String.self, forKey: .mood)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
 }
 
 enum APIError: Error {

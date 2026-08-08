@@ -180,7 +180,77 @@ body {
   margin-left: -6px;
 }
 
+/* ───────────────────────── cover art ───────────────────────── */
+
+.oto-cover {
+  position: relative;
+  flex: none;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--line-2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.oto-cover-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.oto-cover-emoji {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+  user-select: none;
+  pointer-events: none;
+}
+
+.oto-cover-lg {
+  border-radius: 11px;
+}
+
+.oto-row-cover {
+  margin-left: 2px;
+  border-radius: 7px;
+}
+
 /* ───────────────────────── title + meta ───────────────────────── */
+
+.oto-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.oto-head-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.oto-head .oto-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.oto-sub {
+  margin: 2px 0 6px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.oto-head .oto-meta {
+  margin-bottom: 0;
+}
 
 .oto-title {
   margin: 0 0 4px;

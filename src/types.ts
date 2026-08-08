@@ -46,6 +46,12 @@ export type PlayerPayload = {
   durationSec: number | null
   voice: string
   createdAt: string
+  /** One-line synopsis, shown as the player subtitle. */
+  summary: string | null
+  /** Single emoji badge overlaid on the cover art. */
+  emoji: string | null
+  /** One-word mood tinting the generative cover. */
+  mood: string | null
   /** True when the audio was served from storage instead of generated. */
   deduped: boolean
 }
@@ -59,6 +65,12 @@ export type HistoryItem = {
   charCount: number
   createdAt: string
   status: AudioStatus
+  /** One-line synopsis. */
+  summary: string | null
+  /** Single emoji badge overlaid on the cover thumbnail. */
+  emoji: string | null
+  /** One-word mood tinting the generative cover. */
+  mood: string | null
 }
 
 /** structuredContent payload while a long generation runs in the background. */

@@ -71,6 +71,9 @@ const playerPayloadShape = {
   durationSec: z.number().nullable(),
   voice: z.string(),
   createdAt: z.string(),
+  summary: z.string().nullable(),
+  emoji: z.string().nullable(),
+  mood: z.string().nullable(),
   deduped: z.boolean(),
 }
 
@@ -97,6 +100,9 @@ const historyPayloadShape = {
       charCount: z.number(),
       createdAt: z.string(),
       status: audioStatusEnum,
+      summary: z.string().nullable(),
+      emoji: z.string().nullable(),
+      mood: z.string().nullable(),
     }),
   ),
   total: z.number(),
@@ -156,6 +162,9 @@ async function playerPayload(rec: AudioRecord, deduped: boolean): Promise<Player
     durationSec: rec.durationSec,
     voice: rec.voice,
     createdAt: rec.createdAt,
+    summary: rec.summary,
+    emoji: rec.emoji,
+    mood: rec.mood,
     deduped,
   }
 }
@@ -182,6 +191,9 @@ function historyItem(rec: AudioRecord): HistoryItem {
     charCount: rec.charCount,
     createdAt: rec.createdAt,
     status: rec.status,
+    summary: rec.summary,
+    emoji: rec.emoji,
+    mood: rec.mood,
   }
 }
 

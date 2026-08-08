@@ -37,14 +37,20 @@ struct LibraryView: View {
                 } else {
                     List(model.items) { item in
                         NavigationLink(value: item) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.title).lineLimit(1).foregroundStyle(Theme.ink)
-                                HStack(spacing: 8) {
-                                    Text(item.voice)
-                                    if let d = item.durationSec { Text(timecode(d)) }
-                                    if item.status != "ready" { Text(item.status).foregroundStyle(Theme.accent) }
+                            HStack(spacing: 12) {
+                                CoverThumb(item: item, size: 56)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title).lineLimit(1).foregroundStyle(Theme.ink)
+                                    if let s = item.summary, !s.isEmpty {
+                                        Text(s).lineLimit(1).font(.caption).foregroundStyle(Theme.ink2)
+                                    }
+                                    HStack(spacing: 8) {
+                                        Text(item.voice)
+                                        if let d = item.durationSec { Text(timecode(d)) }
+                                        if item.status != "ready" { Text(item.status).foregroundStyle(Theme.accent) }
+                                    }
+                                    .font(.caption).foregroundStyle(Theme.ink2)
                                 }
-                                .font(.caption).foregroundStyle(Theme.ink2)
                             }
                         }
                         .listRowBackground(Theme.surface)
@@ -74,6 +80,26 @@ struct LibraryView: View {
                 }
             }
         }
+    }
+}
+
+/// Rounded cover thumbnail with the emoji badge overlaid in the corner.
+struct CoverThumb: View {
+    let item: AudioItem
+    var size: CGFloat
+
+    var body: some View {
+        CoverView(id: item.id, mood: item.mood, size: size)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                if let e = item.emoji, !e.isEmpty {
+                    Text(e)
+                        .font(.system(size: size * 0.28))
+                        .padding(size * 0.08)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(3)
+                }
+            }
     }
 }
 

@@ -1,4 +1,5 @@
-function fnv1a(input: string): number {
+// Shared seed helpers — the Cover art and the iOS app hash ids the same way.
+export function fnv1a(input: string): number {
   let hash = 0x811c9dc5
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i)
@@ -7,7 +8,7 @@ function fnv1a(input: string): number {
   return hash >>> 0
 }
 
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed
   return () => {
     a = (a + 0x6d2b79f5) | 0

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { HistoryItem, HistoryPayload } from '../../../src/types'
 import { formatTimecode, relativeDate } from '../format'
+import { Cover } from './Cover'
 import { TrashIcon } from './Icons'
 import { OtoMark } from './Mark'
 
@@ -181,6 +182,7 @@ function HistoryRow({
 }: HistoryRowProps) {
   return (
     <li className="oto-row" data-active={active}>
+      <Cover id={item.id} mood={item.mood} emoji={item.emoji} size={34} className="oto-row-cover" />
       <button
         type="button"
         className="oto-row-main"

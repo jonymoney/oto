@@ -45,8 +45,23 @@ struct PlayerView: View {
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 96)).foregroundStyle(Theme.accent)
+            GeometryReader { geo in
+                let side = min(geo.size.width, 320)
+                CoverView(id: item.id, mood: model.detail?.mood ?? item.mood, size: side)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(alignment: .bottomTrailing) {
+                        let emoji = model.detail?.emoji ?? item.emoji
+                        if let e = emoji, !e.isEmpty {
+                            Text(e)
+                                .font(.system(size: side * 0.16))
+                                .padding(side * 0.05)
+                                .background(.thinMaterial, in: Circle())
+                                .padding(10)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(height: 320)
             Text(item.title).font(.title2).bold().multilineTextAlignment(.center)
                 .foregroundStyle(Theme.ink)
             Text(item.voice).foregroundStyle(Theme.ink2)
