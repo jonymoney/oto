@@ -191,4 +191,17 @@ enum API {
         let (data, _) = try await send(request("api/audios/\(id)/url"))
         return try JSONDecoder().decode(FreshURL.self, from: data).audioUrl
     }
+
+    // MARK: Usage
+
+    struct Usage: Decodable {
+        let generatedSec: Double
+        let quotaSec: Double
+        let unlimited: Bool
+    }
+
+    static func usage() async throws -> Usage {
+        let (data, _) = try await send(request("api/usage"))
+        return try JSONDecoder().decode(Usage.self, from: data)
+    }
 }
