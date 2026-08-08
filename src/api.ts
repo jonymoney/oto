@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { RequestHandler } from 'express'
-import { audioRepo } from './db.js'
+import { audioRepo, usageRepo } from './db.js'
 import { presignAudioUrl, deleteAudioObject } from './storage.js'
 import { userIdFrom } from './auth.js'
 import { config } from './config.js'
@@ -92,6 +92,20 @@ export function apiRouter(): Router {
         console.error(`Failed to delete bucket object ${rec.objectKey}:`, err)
       }
       res.status(204).end()
+    }),
+  )
+
+  // Generation quota for the app's usage meter. quotaSec 0 = unlimited for all.
+  router.get(
+    '/usage',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const [generatedSec, unlimited] = await Promise.all([
+        usageRepo.generatedSec(userId),
+        usageRepo.isUnlimited(userId),
+      ])
+      const quotaSec = config.QUOTA_MINUTES * 60
+      res.json({ generatedSec, quotaSec, unlimited: unlimited || quotaSec === 0 })
     }),
   )
 

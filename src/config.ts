@@ -45,6 +45,8 @@ const EnvSchema = z.object({
   // Comma-separated emails exempt from the quota. The per-user `unlimited`
   // flag in usage_counters does the same without a redeploy.
   QUOTA_EXEMPT_EMAILS: z.string().default(''),
+  // Where the "generation limit reached" upsell points (web Stripe checkout).
+  UPGRADE_URL: z.string().url().default('https://oto.audio/upgrade'),
 })
 
 const env = EnvSchema.parse(process.env)

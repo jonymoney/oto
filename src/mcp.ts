@@ -363,7 +363,8 @@ export function buildServer(): McpServer {
             return errorResult(
               new Error(
                 `Generation limit reached (${fmtMinutes(usedSec)} of ${config.QUOTA_MINUTES} min). ` +
-                  'New audio cannot be generated, but everything in your history stays playable.',
+                  'New audio cannot be generated, but everything in your history stays playable. ' +
+                  `Upgrade for unlimited generation: ${config.UPGRADE_URL}`,
               ),
             )
           }
