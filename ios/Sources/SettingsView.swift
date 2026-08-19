@@ -56,6 +56,14 @@ struct SettingsView: View {
                             ForEach(prefs.providers, id: \.self) { Text(providerLabel($0)).tag($0) }
                         }
                     }
+                } else if model.errorMessage != nil {
+                    Button {
+                        model.errorMessage = nil
+                        Task { await model.load(auth: auth) }
+                    } label: {
+                        Label("Couldn't load — tap to retry", systemImage: "arrow.clockwise")
+                            .foregroundStyle(Theme.ink2)
+                    }
                 } else {
                     ProgressView().frame(maxWidth: .infinity)
                 }
