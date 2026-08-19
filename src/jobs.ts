@@ -1,6 +1,7 @@
 import { audioRepo, usageRepo } from './db.js'
 import { putAudio } from './storage.js'
 import { estimateSec, synthesizeChunked } from './tts.js'
+import type { TtsProvider } from './tts.js'
 
 interface GenerationJobArgs {
   recId: string
@@ -9,6 +10,7 @@ interface GenerationJobArgs {
   text: string
   voice: string
   instructions?: string
+  provider?: TtsProvider
   /** Bucket key of the 'processing' row — the finished mp3 lands here. */
   objectKey: string
 }
@@ -25,12 +27,13 @@ export function startGenerationJob(args: GenerationJobArgs): void {
 }
 
 async function runGenerationJob(args: GenerationJobArgs): Promise<void> {
-  const { recId, userId, email, text, voice, instructions, objectKey } = args
+  const { recId, userId, email, text, voice, instructions, provider, objectKey } = args
   console.log(`Generation job ${recId} started (${text.length} chars)`)
   try {
     const result = await synthesizeChunked(text, {
       voice,
       instructions,
+      provider,
       onChunkDone: () => {
         // Progress is best-effort: a lost increment only understates the bar.
         void audioRepo.markChunkDone(recId).catch((err) => {

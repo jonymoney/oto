@@ -168,6 +168,17 @@ enum API {
         throw APIError.badResponse
     }
 
+    /// Email of the signed-in user, from Better Auth's get-session. Throws if
+    /// the session is dead (body is `null` → decode fails).
+    static func sessionEmail() async throws -> String {
+        struct SessionResponse: Decodable {
+            struct User: Decodable { let email: String }
+            let user: User
+        }
+        let (data, _) = try await send(request("api/auth/get-session"))
+        return try JSONDecoder().decode(SessionResponse.self, from: data).user.email
+    }
+
     static func signOut() async {
         var req = request("api/auth/sign-out", method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -203,6 +214,34 @@ enum API {
     static func usage() async throws -> Usage {
         let (data, _) = try await send(request("api/usage"))
         return try JSONDecoder().decode(Usage.self, from: data)
+    }
+
+    // MARK: Prefs
+
+    /// nil voice/provider = server default; voices/providers are the allowed
+    /// picker options (fish only appears when the server has it configured).
+    struct Prefs: Decodable {
+        let voice: String?
+        let provider: String?
+        let voices: [String]
+        let providers: [String]
+    }
+
+    static func prefs() async throws -> Prefs {
+        let (data, _) = try await send(request("api/prefs"))
+        return try JSONDecoder().decode(Prefs.self, from: data)
+    }
+
+    /// Partial update — only the fields passed change on the server.
+    static func updatePrefs(voice: String? = nil, provider: String? = nil) async throws -> Prefs {
+        var req = request("api/prefs", method: "PUT")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: String] = [:]
+        if let voice { body["voice"] = voice }
+        if let provider { body["provider"] = provider }
+        req.httpBody = try JSONEncoder().encode(body)
+        let (data, _) = try await send(req)
+        return try JSONDecoder().decode(Prefs.self, from: data)
     }
 
     // MARK: Billing
