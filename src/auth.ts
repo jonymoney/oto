@@ -7,12 +7,40 @@ import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
 import { config } from './config.js'
 import { auth } from './better-auth.js'
+import { pool } from './db.js'
 
 const DEV_USER_ID = '00000000-0000-0000-0000-000000000000'
 
 const jwks = createRemoteJWKSet(new URL(config.jwksUrl))
 
+// Better Auth's oidcProvider issues OPAQUE access tokens (random strings stored
+// in oauthAccessToken) — useJWTPlugin only makes the id_token a JWT. The MCP
+// connector therefore presents an opaque bearer; validate it the same way the
+// oauth2/userinfo endpoint does: a lookup + expiry check.
+async function verifyOpaqueToken(token: string): Promise<AuthInfo> {
+  const { rows } = await pool.query(
+    `select t."userId", t.scopes, t."clientId", t."accessTokenExpiresAt", u.email
+       from "oauthAccessToken" t join users u on u.id = t."userId"
+      where t."accessToken" = $1`,
+    [token],
+  )
+  const row = rows[0]
+  if (!row) throw new InvalidTokenError('Unknown access token')
+  if (row.accessTokenExpiresAt < new Date()) throw new InvalidTokenError('Access token expired')
+  return {
+    token,
+    clientId: row.clientId,
+    scopes: typeof row.scopes === 'string' ? row.scopes.split(' ') : [],
+    expiresAt: Math.floor(new Date(row.accessTokenExpiresAt).getTime() / 1000),
+    extra: { userId: row.userId, email: row.email },
+  }
+}
+
 async function verifyAccessToken(token: string): Promise<AuthInfo> {
+  // Opaque OAuth token (no JWS structure) → DB-backed check. JWTs (three
+  // dot-separated segments) — e.g. the /api/auth/token endpoint's — go
+  // through JWKS verification below.
+  if (token.split('.').length !== 3) return verifyOpaqueToken(token)
   let payload
   try {
     // Audience is deliberately not enforced: the JWT-endpoint token has aud =
