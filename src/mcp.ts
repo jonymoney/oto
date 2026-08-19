@@ -15,6 +15,7 @@ import { synthesize, resolveVoice, chunkText, estimateSec, VOICES } from './tts.
 import type { TtsProvider } from './tts.js'
 import { startGenerationJob } from './jobs.js'
 import { userIdFrom, authUserFrom } from './auth.js'
+import { ensureSlug } from './share.js'
 import type {
   AudioRecord,
   HistoryItem,
@@ -416,6 +417,8 @@ export function buildServer(): McpServer {
             chunksDone: 0,
             errorMessage: null,
           })
+          // Short-link slug at creation; a failure must never fail generation.
+          await ensureSlug(rec).catch(() => {})
           // Only the request that actually inserted the row owns the job —
           // a lost race means another request is already generating it.
           if (created) {
@@ -469,6 +472,8 @@ export function buildServer(): McpServer {
           chunksDone: 0,
           errorMessage: null,
         })
+        // Short-link slug at creation; a failure must never fail generation.
+        await ensureSlug(rec).catch(() => {})
 
         // Usage is recorded for everyone (cost visibility); only non-exempt
         // users see — and are bound by — the quota.

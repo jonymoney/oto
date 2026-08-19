@@ -10,7 +10,7 @@ import { toNodeHandler } from 'better-auth/node'
 import { authMiddleware, apiAuthMiddleware, wellKnownRouter } from './auth.js'
 import { auth } from './better-auth.js'
 import { consentRouter } from './consent.js'
-import { shareRouter } from './share.js'
+import { shareRouter, shortShareRouter } from './share.js'
 import { apiRouter } from './api.js'
 import { handleWebhookEvent } from './billing.js'
 
@@ -167,6 +167,10 @@ const methodNotAllowed = (_req: Request, res: Response) => {
 }
 app.get('/mcp', methodNotAllowed)
 app.delete('/mcp', methodNotAllowed)
+
+// Short share links (/:username/:slug) — a catch-all, so it MUST stay the last
+// registered route: everything above wins first, unknown paths 404 inside it.
+app.use(shortShareRouter())
 
 await initDb()
 

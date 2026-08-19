@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto'
 import { Router } from 'express'
 import type { RequestHandler } from 'express'
 import { Resvg } from '@resvg/resvg-js'
-import { audioRepo } from './db.js'
+import { audioRepo, userRepo } from './db.js'
 import { presignAudioUrl } from './storage.js'
 import { config } from './config.js'
 import type { AudioRecord } from './types.js'
@@ -67,6 +68,69 @@ function meshSvg(id: string, mood: string | null, w: number, h: number): string 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="${pal[2]}"/>${defs}${rects}</svg>`
 }
 
+// ── Short links: oto.audio/{username}/{slug} ────────────────────────────────
+
+// Existing top-level routes — never assignable as usernames.
+const RESERVED_USERNAMES = new Set([
+  'api', 'mcp', 'a', 'login', 'oauth', 'consent', 'upgrade', 'health', 'auth',
+  'billing', 'icon.png', 'favicon.ico', 'robots.txt', '.well-known', 'well-known',
+])
+
+const rand = (n: number) => randomBytes(n).toString('hex').slice(0, n)
+
+const kebab = (s: string, max: number) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, max)
+    .replace(/-+$/, '')
+
+/** Canonical public share URL — the ONE place the short form is built. */
+export function shareUrlFor(username: string, slug: string): string {
+  return new URL(`/${username}/${slug}`, config.BETTER_AUTH_URL).href
+}
+
+/** The user's username, deriving + storing it from their email on first use. */
+export async function usernameFor(userId: string): Promise<string> {
+  const user = await userRepo.get(userId)
+  if (!user) throw new Error(`No user ${userId}`)
+  if (user.username) return user.username
+  const base = kebab(user.email.split('@')[0] ?? '', 24)
+  let name = !base || RESERVED_USERNAMES.has(base) ? `user-${rand(6)}` : base
+  for (let tries = 0; tries < 5; tries++) {
+    try {
+      if (await userRepo.claimUsername(userId, name)) return name
+      // Lost a concurrent claim on our own row — use whatever won.
+      const claimed = (await userRepo.get(userId))?.username
+      if (claimed) return claimed
+    } catch {
+      // Unique collision with another user — retry with a random suffix.
+    }
+    name = `${(base || 'user').slice(0, 19)}-${rand(4)}`
+  }
+  throw new Error(`Could not assign a username for user ${userId}`)
+}
+
+/** The audio's slug, generating + storing it from the title on first use. */
+export async function ensureSlug(rec: AudioRecord): Promise<string> {
+  if (rec.slug) return rec.slug
+  const base = kebab(rec.title, 40) || 'audio'
+  let slug = base
+  for (let n = 2; await audioRepo.slugTaken(rec.userId, slug); n++) {
+    slug = `${base.slice(0, 37)}-${n}`
+  }
+  try {
+    await audioRepo.setSlug(rec.id, slug)
+  } catch {
+    // ponytail: lost a rare check-then-set race — random suffix, no retry loop.
+    slug = `${base.slice(0, 34)}-${rand(4)}`
+    await audioRepo.setSlug(rec.id, slug)
+  }
+  rec.slug = slug
+  return slug
+}
+
 // ── Share page ──────────────────────────────────────────────────────────────
 
 const esc = (s: string) =>
@@ -78,10 +142,10 @@ function fmtDur(sec: number | null): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-function sharePage(rec: AudioRecord): string {
+function sharePage(rec: AudioRecord, username: string, slug: string): string {
   const title = esc(rec.title)
   const desc = esc(rec.summary ?? 'Listen on oto')
-  const coverUrl = new URL(`/a/${rec.id}/cover.png`, config.BETTER_AUTH_URL).href
+  const coverUrl = `${shareUrlFor(username, slug)}/cover.png`
   const chips = rec.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')
   const bars = '<i></i>'.repeat(5)
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -138,7 +202,7 @@ ${chips ? `<div class="chips">${chips}</div>` : ''}
   </div>
   <div class="viz" aria-hidden="true">${bars}</div>
 </div>
-<audio id="au" src="/a/${rec.id}/audio" preload="metadata"></audio>
+<audio id="au" src="/${username}/${slug}/audio" preload="metadata"></audio>
 <footer>Made with <a href="/">◉ oto</a></footer>
 </main><script>
 const au = document.getElementById('au'), pp = document.getElementById('pp'),
@@ -193,13 +257,15 @@ async function readyAudio(id: string): Promise<AudioRecord | null> {
 export function shareRouter(): Router {
   const router = Router()
 
+  // Legacy long links: 301 to the canonical short URL (lazily assigns
+  // username + slug on first hit). /a/:id/audio and cover keep serving direct.
   router.get(
     '/a/:id',
     wrap(async (req, res) => {
       const rec = await readyAudio(req.params.id)
       if (!rec) return res.status(404).type('html').send(notFoundPage)
-      res.setHeader('Cache-Control', 'no-store')
-      res.type('html').send(sharePage(rec))
+      const url = shareUrlFor(await usernameFor(rec.userId), await ensureSlug(rec))
+      res.redirect(301, url)
     }),
   )
 
@@ -222,6 +288,53 @@ export function shareRouter(): Router {
       if (!rec) return res.status(404).json({ error: 'Not found' })
       // ponytail: emoji/title omitted from the og image — pure mesh; resvg has
       // no emoji font here anyway. Add text via satori/font embed if wanted.
+      const png = new Resvg(meshSvg(rec.id, rec.mood, 1200, 630)).render().asPng()
+      res.setHeader('Cache-Control', 'public, max-age=86400')
+      res.type('png').send(Buffer.from(png))
+    }),
+  )
+
+  return router
+}
+
+// ── Short-link routes (/:username/:slug) ────────────────────────────────────
+// A catch-all — mounted LAST in src/index.ts so it never shadows real routes.
+
+async function readyBySlug(username: string, slug: string): Promise<AudioRecord | null> {
+  const userId = await userRepo.findIdByUsername(username)
+  if (!userId) return null
+  const rec = await audioRepo.getBySlugPublic(userId, slug)
+  return rec && rec.status === 'ready' ? rec : null
+}
+
+export function shortShareRouter(): Router {
+  const router = Router()
+
+  router.get(
+    '/:username/:slug',
+    wrap(async (req, res) => {
+      const rec = await readyBySlug(req.params.username, req.params.slug)
+      if (!rec) return res.status(404).type('html').send(notFoundPage)
+      res.setHeader('Cache-Control', 'no-store')
+      res.type('html').send(sharePage(rec, req.params.username, req.params.slug))
+    }),
+  )
+
+  router.get(
+    '/:username/:slug/audio',
+    wrap(async (req, res) => {
+      const rec = await readyBySlug(req.params.username, req.params.slug)
+      if (!rec) return res.status(404).json({ error: 'Not found' })
+      res.setHeader('Cache-Control', 'no-store')
+      res.redirect(302, await presignAudioUrl(rec.objectKey))
+    }),
+  )
+
+  router.get(
+    '/:username/:slug/cover.png',
+    wrap(async (req, res) => {
+      const rec = await readyBySlug(req.params.username, req.params.slug)
+      if (!rec) return res.status(404).json({ error: 'Not found' })
       const png = new Resvg(meshSvg(rec.id, rec.mood, 1200, 630)).render().asPng()
       res.setHeader('Cache-Control', 'public, max-age=86400')
       res.type('png').send(Buffer.from(png))
