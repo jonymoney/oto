@@ -252,6 +252,12 @@ export const audioRepo = {
     return rows[0] ? mapRow(rows[0]) : null
   },
 
+  /** Unscoped lookup for public share pages — the unguessable UUID is the capability. */
+  async getByIdPublic(id: string): Promise<AudioRecord | null> {
+    const { rows } = await pool.query<AudioRow>(`select ${COLUMNS} from audios where id = $1`, [id])
+    return rows[0] ? mapRow(rows[0]) : null
+  },
+
   async listByUser(
     userId: string,
     limit = 50,

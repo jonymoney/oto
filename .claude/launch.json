@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "oto-server",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "src/index.ts"],
+      "port": 3001
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import { toNodeHandler } from 'better-auth/node'
 import { authMiddleware, apiAuthMiddleware, wellKnownRouter } from './auth.js'
 import { auth } from './better-auth.js'
 import { consentRouter } from './consent.js'
+import { shareRouter } from './share.js'
 import { apiRouter } from './api.js'
 import { handleWebhookEvent } from './billing.js'
 
@@ -120,6 +121,10 @@ app.get('/upgrade', (_req, res) => {
 
 app.use(wellKnownRouter())
 app.use(consentRouter())
+
+// Public share pages (/a/:id) — no auth: the unguessable audio UUID is the
+// capability, like a Spotify link. Must stay above the auth-protected routers.
+app.use(shareRouter())
 
 // REST JSON API for native clients (iOS). Validates the Better Auth session
 // bearer via getSession — NOT the JWT path /mcp uses.
