@@ -328,6 +328,8 @@ export function buildServer(): McpServer {
         // User prefs fill in what the request leaves unspecified: pref voice
         // when no voice arg, pref provider always (there's no provider arg).
         const prefs = await prefsRepo.get(userId)
+        // Pref language fills in missing language metadata (display-only).
+        meta.language ??= prefs.language
         const provider: TtsProvider =
           prefs.provider === 'fish' && config.fishEnabled
             ? 'fish'

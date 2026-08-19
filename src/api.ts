@@ -6,6 +6,7 @@ import { presignAudioUrl, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
 import { createCheckoutSession } from './billing.js'
+import { previewsRouter } from './previews.js'
 import { usernameFor, ensureSlug, shareUrlFor } from './share.js'
 import type { AudioRecord } from './types.js'
 
@@ -123,10 +124,17 @@ export function apiRouter(): Router {
   // Per-user generation preferences. null = server default; the allowed lists
   // let the client render its pickers without hardcoding them.
   const enabledProviders = () => (config.fishEnabled ? ['openai', 'fish'] : ['openai'])
-  const prefsPayload = (prefs: { voice: string | null; provider: string | null }) => ({
+  // BCP-47 primary tags; the client renders localized display names.
+  const LANGUAGES = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'zh', 'hi']
+  const prefsPayload = (prefs: {
+    voice: string | null
+    provider: string | null
+    language: string | null
+  }) => ({
     ...prefs,
     voices: [...VOICES],
     providers: enabledProviders(),
+    languages: LANGUAGES,
   })
 
   router.get(
@@ -141,7 +149,11 @@ export function apiRouter(): Router {
     '/prefs',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const { voice, provider } = (req.body ?? {}) as { voice?: unknown; provider?: unknown }
+      const { voice, provider, language } = (req.body ?? {}) as {
+        voice?: unknown
+        provider?: unknown
+        language?: unknown
+      }
       if (voice !== undefined && (typeof voice !== 'string' || !VOICES.includes(voice))) {
         return res.status(400).json({ error: `voice must be one of: ${VOICES.join(', ')}` })
       }
@@ -149,7 +161,10 @@ export function apiRouter(): Router {
       if (provider !== undefined && (typeof provider !== 'string' || !providers.includes(provider))) {
         return res.status(400).json({ error: `provider must be one of: ${providers.join(', ')}` })
       }
-      res.json(prefsPayload(await prefsRepo.set(userId, { voice, provider })))
+      if (language !== undefined && (typeof language !== 'string' || !LANGUAGES.includes(language))) {
+        return res.status(400).json({ error: `language must be one of: ${LANGUAGES.join(', ')}` })
+      }
+      res.json(prefsPayload(await prefsRepo.set(userId, { voice, provider, language })))
     }),
   )
 
@@ -164,6 +179,8 @@ export function apiRouter(): Router {
       res.json({ url })
     }),
   )
+
+  router.use(previewsRouter())
 
   return router
 }

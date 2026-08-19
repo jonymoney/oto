@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
@@ -32,6 +33,15 @@ export async function putAudio(
       ContentType: contentType,
     }),
   )
+}
+
+export async function audioObjectExists(objectKey: string): Promise<boolean> {
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: config.BUCKET_NAME, Key: objectKey }))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export async function presignAudioUrl(objectKey: string): Promise<string> {

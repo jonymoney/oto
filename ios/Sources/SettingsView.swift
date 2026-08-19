@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 @MainActor
 @Observable
@@ -20,9 +21,9 @@ final class SettingsModel {
         email = try? await API.sessionEmail()
     }
 
-    func save(voice: String? = nil, provider: String? = nil) async {
+    func save(voice: String? = nil, provider: String? = nil, language: String? = nil) async {
         do {
-            prefs = try await API.updatePrefs(voice: voice, provider: provider)
+            prefs = try await API.updatePrefs(voice: voice, provider: provider, language: language)
         } catch {
             errorMessage = "Couldn't save that setting."
         }
@@ -44,17 +45,23 @@ struct SettingsView: View {
 
             Section {
                 if let prefs = model.prefs {
-                    Picker("Default voice", selection: voiceBinding) {
-                        // ponytail: "Server default" only shows while unset — once a
-                        // voice is picked there's no way back (server has no clear).
-                        if prefs.voice == nil { Text("Server default").tag("") }
-                        ForEach(prefs.voices, id: \.self) { Text($0.capitalized).tag($0) }
+                    NavigationLink {
+                        VoicePickerView(model: model)
+                    } label: {
+                        LabeledContent(
+                            "Default voice",
+                            value: prefs.voice?.capitalized ?? "Server default"
+                        )
                     }
                     if prefs.providers.count > 1 {
                         Picker("Provider", selection: providerBinding) {
                             if prefs.provider == nil { Text("Server default").tag("") }
                             ForEach(prefs.providers, id: \.self) { Text(providerLabel($0)).tag($0) }
                         }
+                    }
+                    Picker("Language", selection: languageBinding) {
+                        if prefs.language == nil { Text("Server default").tag("") }
+                        ForEach(prefs.languages, id: \.self) { Text(languageLabel($0)).tag($0) }
                     }
                 } else if model.errorMessage != nil {
                     Button {
@@ -119,16 +126,6 @@ struct SettingsView: View {
     }
 
     // Empty tag "" = server default (shown only while unset); picking an option saves it.
-    private var voiceBinding: Binding<String> {
-        Binding(
-            get: { model.prefs?.voice ?? "" },
-            set: { v in
-                guard !v.isEmpty, v != model.prefs?.voice else { return }
-                Task { await model.save(voice: v) }
-            }
-        )
-    }
-
     private var providerBinding: Binding<String> {
         Binding(
             get: { model.prefs?.provider ?? "" },
@@ -137,6 +134,20 @@ struct SettingsView: View {
                 Task { await model.save(provider: p) }
             }
         )
+    }
+
+    private var languageBinding: Binding<String> {
+        Binding(
+            get: { model.prefs?.language ?? "" },
+            set: { l in
+                guard !l.isEmpty, l != model.prefs?.language else { return }
+                Task { await model.save(language: l) }
+            }
+        )
+    }
+
+    private func languageLabel(_ code: String) -> String {
+        Locale.current.localizedString(forLanguageCode: code)?.capitalized ?? code
     }
 
     private func providerLabel(_ id: String) -> String {
@@ -151,5 +162,112 @@ struct SettingsView: View {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
+    }
+}
+
+// MARK: - Voice picker with previews
+
+/// One-at-a-time preview playback. Each voice's sample is generated server-side
+/// on first request and cached in the bucket, so replays are instant.
+@MainActor
+@Observable
+final class VoicePreviewPlayer {
+    private var player: AVPlayer?
+    private var endObserver: NSObjectProtocol?
+    private(set) var playingVoice: String?
+    private(set) var loadingVoice: String?
+
+    func toggle(voice: String, provider: String?, language: String?) async {
+        if playingVoice == voice || loadingVoice == voice {
+            stop()
+            return
+        }
+        stop()
+        loadingVoice = voice
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        do {
+            let url = try await API.voicePreviewURL(voice: voice, provider: provider, language: language)
+            guard loadingVoice == voice else { return } // user tapped elsewhere meanwhile
+            let p = AVPlayer(url: url)
+            endObserver = NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.didPlayToEndTimeNotification,
+                object: p.currentItem, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.stop() }
+            }
+            player = p
+            playingVoice = voice
+            p.play()
+        } catch {
+            // Best-effort: leave the row idle on failure.
+        }
+        loadingVoice = nil
+    }
+
+    func stop() {
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
+        player?.pause()
+        player = nil
+        playingVoice = nil
+        loadingVoice = nil
+    }
+}
+
+struct VoicePickerView: View {
+    var model: SettingsModel
+    @State private var preview = VoicePreviewPlayer()
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(model.prefs?.voices ?? [], id: \.self) { voice in
+                    HStack(spacing: 12) {
+                        Button {
+                            Task {
+                                await preview.toggle(
+                                    voice: voice,
+                                    provider: model.prefs?.provider,
+                                    language: model.prefs?.language
+                                )
+                            }
+                        } label: {
+                            if preview.loadingVoice == voice {
+                                ProgressView().frame(width: 28)
+                            } else {
+                                Image(systemName: preview.playingVoice == voice
+                                    ? "stop.circle.fill" : "play.circle")
+                                    .font(.title2)
+                                    .foregroundStyle(Theme.accent)
+                                    .frame(width: 28)
+                            }
+                        }
+                        .buttonStyle(.borderless)
+
+                        Button {
+                            Task { await model.save(voice: voice) }
+                        } label: {
+                            HStack {
+                                Text(voice.capitalized).foregroundStyle(Theme.ink)
+                                Spacer()
+                                if model.prefs?.voice == voice {
+                                    Image(systemName: "checkmark").foregroundStyle(Theme.accent)
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .listRowBackground(Theme.surface)
+                }
+            } footer: {
+                Text("Tap ▶ to hear each voice introduce itself.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle("Default voice")
+        .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { preview.stop() }
     }
 }

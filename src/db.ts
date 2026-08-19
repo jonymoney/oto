@@ -162,6 +162,7 @@ export async function initDb(): Promise<void> {
       updated_at timestamptz not null default now()
     )
   `)
+  await pool.query('alter table user_prefs add column if not exists language text')
   // Short share links: username on the Better Auth `users` table. Guarded —
   // that table only exists after `npx @better-auth/cli migrate`.
   const { rows: usersReg } = await pool.query<{ reg: string | null }>(
@@ -387,29 +388,34 @@ export const audioRepo = {
 export interface UserPrefs {
   voice: string | null
   provider: string | null
+  language: string | null
 }
 
 export const prefsRepo = {
   async get(userId: string): Promise<UserPrefs> {
     const { rows } = await pool.query<UserPrefs>(
-      'select voice, provider from user_prefs where user_id = $1',
+      'select voice, provider, language from user_prefs where user_id = $1',
       [userId],
     )
-    return rows[0] ?? { voice: null, provider: null }
+    return rows[0] ?? { voice: null, provider: null, language: null }
   },
 
   /** Partial upsert: omitted fields keep their stored value. */
   // ponytail: no way to reset a pref back to null — add a clear path if anyone asks.
-  async set(userId: string, prefs: { voice?: string; provider?: string }): Promise<UserPrefs> {
+  async set(
+    userId: string,
+    prefs: { voice?: string; provider?: string; language?: string },
+  ): Promise<UserPrefs> {
     const { rows } = await pool.query<UserPrefs>(
-      `insert into user_prefs (user_id, voice, provider, updated_at)
-       values ($1, $2, $3, now())
+      `insert into user_prefs (user_id, voice, provider, language, updated_at)
+       values ($1, $2, $3, $4, now())
        on conflict (user_id)
        do update set voice = coalesce($2, user_prefs.voice),
                      provider = coalesce($3, user_prefs.provider),
+                     language = coalesce($4, user_prefs.language),
                      updated_at = now()
-       returning voice, provider`,
-      [userId, prefs.voice ?? null, prefs.provider ?? null],
+       returning voice, provider, language`,
+      [userId, prefs.voice ?? null, prefs.provider ?? null, prefs.language ?? null],
     )
     return rows[0]
   },

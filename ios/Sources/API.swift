@@ -227,8 +227,10 @@ enum API {
     struct Prefs: Decodable {
         let voice: String?
         let provider: String?
+        let language: String?
         let voices: [String]
         let providers: [String]
+        let languages: [String]
     }
 
     static func prefs() async throws -> Prefs {
@@ -237,15 +239,38 @@ enum API {
     }
 
     /// Partial update — only the fields passed change on the server.
-    static func updatePrefs(voice: String? = nil, provider: String? = nil) async throws -> Prefs {
+    static func updatePrefs(
+        voice: String? = nil, provider: String? = nil, language: String? = nil
+    ) async throws -> Prefs {
         var req = request("api/prefs", method: "PUT")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: String] = [:]
         if let voice { body["voice"] = voice }
         if let provider { body["provider"] = provider }
+        if let language { body["language"] = language }
         req.httpBody = try JSONEncoder().encode(body)
         let (data, _) = try await send(req)
         return try JSONDecoder().decode(Prefs.self, from: data)
+    }
+
+    private struct PreviewURL: Decodable { let url: String }
+
+    /// Presigned URL of the short sample where the voice introduces itself.
+    static func voicePreviewURL(voice: String, provider: String?, language: String?) async throws -> URL {
+        var req = request("api/voices/\(voice)/preview")
+        // appendingPathComponent would percent-encode "?", so add the query here.
+        if let u = req.url, var comps = URLComponents(url: u, resolvingAgainstBaseURL: false) {
+            var items: [URLQueryItem] = []
+            if let provider { items.append(URLQueryItem(name: "provider", value: provider)) }
+            if let language { items.append(URLQueryItem(name: "lang", value: language)) }
+            if !items.isEmpty { comps.queryItems = items }
+            req.url = comps.url
+        }
+        let (data, _) = try await send(req)
+        guard let url = URL(string: try JSONDecoder().decode(PreviewURL.self, from: data).url) else {
+            throw APIError.badResponse
+        }
+        return url
     }
 
     // MARK: Billing
