@@ -97,10 +97,21 @@ struct LibraryView: View {
                             .font(.caption).foregroundStyle(Theme.ink2)
                         }
                         Spacer(minLength: 8)
-                        DownloadAccessory(id: item.id)
+                        DownloadAccessory(item: item)
                     }
                 }
                 .listRowBackground(Theme.surface)
+                .contextMenu {
+                    if Downloads.shared.isDownloaded(item.id) {
+                        Button("Remove download", systemImage: "trash", role: .destructive) {
+                            Downloads.shared.remove(item.id)
+                        }
+                    } else if !Downloads.shared.inProgress.contains(item.id) {
+                        Button("Download", systemImage: "arrow.down.circle") {
+                            Task { await Downloads.shared.download(item) }
+                        }
+                    }
+                }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if Downloads.shared.isDownloaded(item.id) {
                         Button("Remove", role: .destructive) {
@@ -176,21 +187,37 @@ struct UsageMeter: View {
     }
 }
 
-/// Trailing download-state accessory: spinner while downloading, filled arrow
-/// when downloaded, faint hint otherwise. Reads the observable Downloads store.
+/// Trailing download-state button: spinner while downloading, filled arrow
+/// when downloaded (tap asks to remove), faint hint otherwise (tap downloads).
+/// Borderless so the tap doesn't hijack the row's NavigationLink.
+/// ponytail: no percent progress — plain spinner; add a URLSession delegate if
+/// files ever get big enough to care.
 struct DownloadAccessory: View {
-    let id: String
+    let item: AudioItem
+    @State private var confirmingRemove = false
 
     var body: some View {
         let downloads = Downloads.shared
         // Touch `items` so the accessory re-renders on download/remove (both mutate it).
         let _ = downloads.items.count
-        if downloads.inProgress.contains(id) {
+        if downloads.inProgress.contains(item.id) {
             ProgressView()
-        } else if downloads.isDownloaded(id) {
-            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+        } else if downloads.isDownloaded(item.id) {
+            Button { confirmingRemove = true } label: {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.borderless)
+            .confirmationDialog("Remove download?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+                Button("Remove download", role: .destructive) { downloads.remove(item.id) }
+                Button("Cancel", role: .cancel) {}
+            }
         } else {
-            Image(systemName: "arrow.down.circle").foregroundStyle(Theme.ink3)
+            Button {
+                Task { await downloads.download(item) }
+            } label: {
+                Image(systemName: "arrow.down.circle").foregroundStyle(Theme.ink3)
+            }
+            .buttonStyle(.borderless)
         }
     }
 }
