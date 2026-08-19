@@ -188,7 +188,11 @@ struct PlayerView: View {
 
     private var summary: String? { model.detail?.summary ?? item.summary }
     private var tags: [String] { model.detail?.tags ?? item.tags }
-    private var shareURL: URL { URL(string: "https://oto.audio/a/\(item.id)")! }
+    // Short link from the API; /a/{id} fallback keeps stale cached lists sharable.
+    private var shareURL: URL {
+        URL(string: model.detail?.shareUrl ?? item.shareUrl ?? "")
+            ?? URL(string: "https://oto.audio/a/\(item.id)")!
+    }
 
     var body: some View {
         ScrollView {

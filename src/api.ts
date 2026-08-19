@@ -5,6 +5,7 @@ import { presignAudioUrl, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
 import { createCheckoutSession } from './billing.js'
+import { usernameFor, ensureSlug, shareUrlFor } from './share.js'
 import type { AudioRecord } from './types.js'
 
 // REST JSON API for native clients (iOS). Mounts behind the same
@@ -33,6 +34,7 @@ function listItem(rec: AudioRecord) {
 async function detail(rec: AudioRecord) {
   return {
     ...listItem(rec),
+    shareUrl: shareUrlFor(await usernameFor(rec.userId), await ensureSlug(rec)),
     audioUrl: rec.status === 'ready' ? await presignAudioUrl(rec.objectKey) : null,
   }
 }
@@ -53,7 +55,14 @@ export function apiRouter(): Router {
       const limit = Number(req.query.limit ?? 50)
       const offset = Number(req.query.offset ?? 0)
       const { items, total } = await audioRepo.listByUser(userId, limit, offset)
-      res.json({ items: items.map(listItem), total })
+      // Lazily backfills username + slugs; username resolved once per request,
+      // slugs sequentially so same-title items can't race each other.
+      const username = items.length ? await usernameFor(userId) : null
+      const out = []
+      for (const rec of items) {
+        out.push({ ...listItem(rec), shareUrl: shareUrlFor(username!, await ensureSlug(rec)) })
+      }
+      res.json({ items: out, total })
     }),
   )
 

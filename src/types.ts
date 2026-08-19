@@ -32,10 +32,12 @@ export interface AudioRecord {
   durationSec: number | null
   charCount: number
   createdAt: string
+  /** URL-safe short-link slug, unique per user (lazily assigned from the title). */
+  slug: string | null
 }
 
-/** Fields required to insert a new audio row. */
-export type NewAudio = Omit<AudioRecord, 'id' | 'createdAt'>
+/** Fields required to insert a new audio row (slug is assigned post-insert). */
+export type NewAudio = Omit<AudioRecord, 'id' | 'createdAt' | 'slug'>
 
 /** structuredContent payload for the player UI after text_to_speech. */
 export type PlayerPayload = {

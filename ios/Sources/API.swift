@@ -13,9 +13,10 @@ struct AudioItem: Identifiable, Codable, Hashable {
     let language: String?
     let mood: String?
     let tags: [String]
+    let shareUrl: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags
+        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl
     }
 
     init(from decoder: Decoder) throws {
@@ -32,6 +33,7 @@ struct AudioItem: Identifiable, Codable, Hashable {
         language = try c.decodeIfPresent(String.self, forKey: .language)
         mood = try c.decodeIfPresent(String.self, forKey: .mood)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        shareUrl = try c.decodeIfPresent(String.self, forKey: .shareUrl)
     }
 }
 
@@ -53,9 +55,10 @@ struct AudioDetail: Decodable {
     let language: String?
     let mood: String?
     let tags: [String]
+    let shareUrl: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags
+        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl
     }
 
     init(from decoder: Decoder) throws {
@@ -72,6 +75,7 @@ struct AudioDetail: Decodable {
         language = try c.decodeIfPresent(String.self, forKey: .language)
         mood = try c.decodeIfPresent(String.self, forKey: .mood)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        shareUrl = try c.decodeIfPresent(String.self, forKey: .shareUrl)
     }
 }
 

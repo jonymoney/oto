@@ -24,6 +24,7 @@ interface AudioRow {
   chunks_total: number | null
   chunks_done: number
   error_message: string | null
+  slug: string | null
 }
 
 function mapRow(row: AudioRow): AudioRecord {
@@ -52,6 +53,7 @@ function mapRow(row: AudioRow): AudioRecord {
     chunksTotal: row.chunks_total,
     chunksDone: row.chunks_done,
     errorMessage: row.error_message,
+    slug: row.slug,
   }
 }
 
@@ -122,7 +124,13 @@ export async function initDb(): Promise<void> {
       add column if not exists emoji text,
       add column if not exists language text,
       add column if not exists mood text,
-      add column if not exists tags text[] not null default '{}'
+      add column if not exists tags text[] not null default '{}',
+      add column if not exists slug text
+  `)
+  // Short share links: slug unique per user (nulls exempt — lazily backfilled).
+  await pool.query(`
+    create unique index if not exists audios_user_slug_idx
+      on audios (user_id, slug) where slug is not null
   `)
   await pool.query(`
     create index if not exists audios_user_id_created_at_idx
@@ -145,6 +153,17 @@ export async function initDb(): Promise<void> {
       add column if not exists stripe_customer_id  text,
       add column if not exists subscription_status text
   `)
+  // Short share links: username on the Better Auth `users` table. Guarded —
+  // that table only exists after `npx @better-auth/cli migrate`.
+  const { rows: usersReg } = await pool.query<{ reg: string | null }>(
+    "select to_regclass('public.users') as reg",
+  )
+  if (usersReg[0]?.reg) {
+    await pool.query('alter table users add column if not exists username text')
+    await pool.query(
+      'create unique index if not exists users_username_idx on users (username) where username is not null',
+    )
+  }
   await seedBetterAuthUsers()
 }
 
@@ -185,7 +204,7 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message'
+  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug'
 
 export const audioRepo = {
   async findByHash(userId: string, textHash: string): Promise<AudioRecord | null> {
@@ -256,6 +275,28 @@ export const audioRepo = {
   async getByIdPublic(id: string): Promise<AudioRecord | null> {
     const { rows } = await pool.query<AudioRow>(`select ${COLUMNS} from audios where id = $1`, [id])
     return rows[0] ? mapRow(rows[0]) : null
+  },
+
+  /** Short-link lookup for public share pages: /:username/:slug → (user_id, slug). */
+  async getBySlugPublic(userId: string, slug: string): Promise<AudioRecord | null> {
+    const { rows } = await pool.query<AudioRow>(
+      `select ${COLUMNS} from audios where user_id = $1 and slug = $2`,
+      [userId, slug],
+    )
+    return rows[0] ? mapRow(rows[0]) : null
+  },
+
+  async slugTaken(userId: string, slug: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      'select 1 from audios where user_id = $1 and slug = $2 limit 1',
+      [userId, slug],
+    )
+    return rows.length > 0
+  },
+
+  /** Throws on a (user_id, slug) unique collision — caller retries with a suffix. */
+  async setSlug(id: string, slug: string): Promise<void> {
+    await pool.query('update audios set slug = $2 where id = $1', [id, slug])
   },
 
   async listByUser(
@@ -331,6 +372,37 @@ export const audioRepo = {
       [rec.id],
     )
     return rows[0] ? mapRow(rows[0]) : rec
+  },
+}
+
+// Better Auth owns the `users` table; oto only reads it + manages `username`.
+export const userRepo = {
+  async get(userId: string): Promise<{ email: string; username: string | null } | null> {
+    const { rows } = await pool.query<{ email: string; username: string | null }>(
+      'select email, username from users where id = $1',
+      [userId],
+    )
+    return rows[0] ?? null
+  },
+
+  /**
+   * Claims a username iff the user has none yet. False = someone else claimed
+   * concurrently (re-read to get theirs); throws on a unique-index collision.
+   */
+  async claimUsername(userId: string, username: string): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      'update users set username = $2 where id = $1 and username is null',
+      [userId, username],
+    )
+    return (rowCount ?? 0) > 0
+  },
+
+  async findIdByUsername(username: string): Promise<string | null> {
+    const { rows } = await pool.query<{ id: string }>(
+      'select id from users where username = $1',
+      [username],
+    )
+    return rows[0]?.id ?? null
   },
 }
 
