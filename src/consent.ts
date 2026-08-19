@@ -77,11 +77,19 @@ const consentBody = `
 <p><b id="client"></b> is asking to access your oto account:</p>
 <ul id="scopes"></ul>
 <div><button id="deny" class="ghost">Deny</button><button id="approve">Approve</button></div>
+<p id="who" style="font-size:.8rem;opacity:.7"></p>
 <p class="err" id="err"></p>`
 
 const consentScript = `
+fetch('/api/auth/get-session').then(r => r.json()).then(s => {
+  if (s && s.user) document.getElementById('who').textContent = 'Signed in as ' + s.user.email;
+}).catch(() => {});
 const params = new URLSearchParams(location.search);
-document.getElementById('client').textContent = params.get('client_id') || 'An application';
+document.getElementById('client').textContent = 'An application';
+fetch('/api/auth/oauth2/client/' + encodeURIComponent(params.get('client_id') || '')).then(r => r.json()).then(c => {
+  const name = c && (c.name || c.client_name);
+  if (name) document.getElementById('client').textContent = name;
+}).catch(() => {});
 const SCOPE_LABELS = { openid: 'Verify your identity', profile: 'See your profile', email: 'See your email address', offline_access: 'Stay signed in' };
 const ul = document.getElementById('scopes');
 (params.get('scope') || '').split(' ').filter(Boolean).forEach(s => {
