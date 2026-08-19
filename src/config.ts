@@ -97,6 +97,8 @@ export const config = {
   ),
   /** True only when every Stripe secret is present; billing routes gate on it. */
   billingEnabled: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && env.STRIPE_PRICE_ID),
+  /** Fish Audio is selectable (per-user pref) only when its key is configured. */
+  fishEnabled: Boolean(env.FISH_API_KEY),
 }
 
 export type Config = typeof config

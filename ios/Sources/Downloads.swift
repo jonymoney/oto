@@ -33,6 +33,15 @@ final class Downloads {
         isDownloaded(id) ? fileURL(id) : nil
     }
 
+    /// Total bytes of the downloaded mp3s on disk. O(n) stat walk — fine at
+    /// library scale, computed only when Settings renders.
+    var totalBytes: Int64 {
+        items.reduce(Int64(0)) { sum, item in
+            let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL(item.id).path)
+            return sum + ((attrs?[.size] as? Int64) ?? 0)
+        }
+    }
+
     // MARK: Mutations
 
     func download(_ item: AudioItem) async {
@@ -58,6 +67,14 @@ final class Downloads {
     func remove(_ id: String) {
         try? FileManager.default.removeItem(at: fileURL(id))
         items.removeAll { $0.id == id }
+        saveIndex()
+    }
+
+    func removeAll() {
+        for item in items {
+            try? FileManager.default.removeItem(at: fileURL(item.id))
+        }
+        items = []
         saveIndex()
     }
 

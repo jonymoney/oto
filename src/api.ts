@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import type { RequestHandler } from 'express'
-import { audioRepo, usageRepo } from './db.js'
+import { audioRepo, usageRepo, prefsRepo } from './db.js'
+import { VOICES } from './tts.js'
 import { presignAudioUrl, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
@@ -107,6 +108,39 @@ export function apiRouter(): Router {
       ])
       const quotaSec = config.QUOTA_MINUTES * 60
       res.json({ generatedSec, quotaSec, unlimited: unlimited || quotaSec === 0 })
+    }),
+  )
+
+  // Per-user generation preferences. null = server default; the allowed lists
+  // let the client render its pickers without hardcoding them.
+  const enabledProviders = () => (config.fishEnabled ? ['openai', 'fish'] : ['openai'])
+  const prefsPayload = (prefs: { voice: string | null; provider: string | null }) => ({
+    ...prefs,
+    voices: [...VOICES],
+    providers: enabledProviders(),
+  })
+
+  router.get(
+    '/prefs',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      res.json(prefsPayload(await prefsRepo.get(userId)))
+    }),
+  )
+
+  router.put(
+    '/prefs',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const { voice, provider } = (req.body ?? {}) as { voice?: unknown; provider?: unknown }
+      if (voice !== undefined && (typeof voice !== 'string' || !VOICES.includes(voice))) {
+        return res.status(400).json({ error: `voice must be one of: ${VOICES.join(', ')}` })
+      }
+      const providers = enabledProviders()
+      if (provider !== undefined && (typeof provider !== 'string' || !providers.includes(provider))) {
+        return res.status(400).json({ error: `provider must be one of: ${providers.join(', ')}` })
+      }
+      res.json(prefsPayload(await prefsRepo.set(userId, { voice, provider })))
     }),
   )
 

@@ -145,6 +145,15 @@ export async function initDb(): Promise<void> {
       add column if not exists stripe_customer_id  text,
       add column if not exists subscription_status text
   `)
+  // Per-user generation preferences (null = server default).
+  await pool.query(`
+    create table if not exists user_prefs (
+      user_id    uuid primary key,
+      voice      text,
+      provider   text,
+      updated_at timestamptz not null default now()
+    )
+  `)
   await seedBetterAuthUsers()
 }
 
@@ -331,6 +340,37 @@ export const audioRepo = {
       [rec.id],
     )
     return rows[0] ? mapRow(rows[0]) : rec
+  },
+}
+
+export interface UserPrefs {
+  voice: string | null
+  provider: string | null
+}
+
+export const prefsRepo = {
+  async get(userId: string): Promise<UserPrefs> {
+    const { rows } = await pool.query<UserPrefs>(
+      'select voice, provider from user_prefs where user_id = $1',
+      [userId],
+    )
+    return rows[0] ?? { voice: null, provider: null }
+  },
+
+  /** Partial upsert: omitted fields keep their stored value. */
+  // ponytail: no way to reset a pref back to null — add a clear path if anyone asks.
+  async set(userId: string, prefs: { voice?: string; provider?: string }): Promise<UserPrefs> {
+    const { rows } = await pool.query<UserPrefs>(
+      `insert into user_prefs (user_id, voice, provider, updated_at)
+       values ($1, $2, $3, now())
+       on conflict (user_id)
+       do update set voice = coalesce($2, user_prefs.voice),
+                     provider = coalesce($3, user_prefs.provider),
+                     updated_at = now()
+       returning voice, provider`,
+      [userId, prefs.voice ?? null, prefs.provider ?? null],
+    )
+    return rows[0]
   },
 }
 

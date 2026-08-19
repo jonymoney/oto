@@ -99,9 +99,11 @@ const openai = new OpenAI()
 // The `instructions` param is rejected by the legacy tts-1 models.
 const MODELS_WITHOUT_INSTRUCTIONS = new Set(['tts-1', 'tts-1-hd'])
 
+export type TtsProvider = 'openai' | 'fish'
+
 export async function synthesize(
   text: string,
-  opts?: { voice?: string; instructions?: string },
+  opts?: { voice?: string; instructions?: string; provider?: TtsProvider },
 ): Promise<SynthesisResult> {
   return synthesizeAll(text, opts ?? {})
 }
@@ -115,6 +117,7 @@ export async function synthesizeChunked(
   opts: {
     voice?: string
     instructions?: string
+    provider?: TtsProvider
     onChunkDone?: (done: number, total: number) => void
   },
 ): Promise<SynthesisResult> {
@@ -126,6 +129,7 @@ async function synthesizeAll(
   opts: {
     voice?: string
     instructions?: string
+    provider?: TtsProvider
     onChunkDone?: (done: number, total: number) => void
   },
 ): Promise<SynthesisResult> {
@@ -133,7 +137,8 @@ async function synthesizeAll(
   if (!input) throw new Error('Cannot synthesize speech from empty text')
 
   // ponytail: Fish Audio behind TTS_PROVIDER for the ear-test spike vs gpt-4o-mini-tts.
-  const fish = config.TTS_PROVIDER === 'fish'
+  // Per-request override (user pref) wins over the global switch.
+  const fish = (opts.provider ?? config.TTS_PROVIDER) === 'fish'
   // For Fish, "voice" is the reference id (VOICES is OpenAI-specific); model comes from FISH_MODEL.
   const model = fish ? config.FISH_MODEL : config.TTS_MODEL
   const voice = fish
