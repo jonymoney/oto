@@ -11,6 +11,12 @@ final class SettingsModel {
     func load(auth: AuthManager) async {
         do {
             prefs = try await API.prefs()
+            // No language pref yet → default to the device's language when supported.
+            if let p = prefs, p.language == nil,
+               let device = Locale.current.language.languageCode?.identifier,
+               p.languages.contains(device) {
+                await save(language: device)
+            }
         } catch APIError.unauthorized {
             auth.sessionExpired()
             return
@@ -21,9 +27,9 @@ final class SettingsModel {
         email = try? await API.sessionEmail()
     }
 
-    func save(voice: String? = nil, provider: String? = nil, language: String? = nil) async {
+    func save(voice: String? = nil, language: String? = nil) async {
         do {
-            prefs = try await API.updatePrefs(voice: voice, provider: provider, language: language)
+            prefs = try await API.updatePrefs(voice: voice, language: language)
         } catch {
             errorMessage = "Couldn't save that setting."
         }
@@ -33,6 +39,7 @@ final class SettingsModel {
 struct SettingsView: View {
     @Environment(AuthManager.self) private var auth
     @State private var model = SettingsModel()
+    @State private var preview = VoicePreviewPlayer()
     @State private var confirmingSignOut = false
     @State private var confirmingRemoveDownloads = false
 
@@ -45,20 +52,25 @@ struct SettingsView: View {
 
             Section {
                 if let prefs = model.prefs {
-                    NavigationLink {
-                        VoicePickerView(model: model)
-                    } label: {
-                        LabeledContent(
-                            "Default voice",
-                            value: prefs.voice?.capitalized ?? "Server default"
-                        )
-                    }
-                    if prefs.providers.count > 1 {
-                        Picker("Provider", selection: providerBinding) {
-                            if prefs.provider == nil { Text("Server default").tag("") }
-                            ForEach(prefs.providers, id: \.self) { Text(providerLabel($0)).tag($0) }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(prefs.voices, id: \.self) { voice in
+                                VoiceOrbCard(voice: voice, selected: prefs.voice == voice.name, preview: preview) {
+                                    Task {
+                                        if prefs.voice != voice.name { await model.save(voice: voice.name) }
+                                        await preview.toggle(
+                                            voice: voice.name,
+                                            provider: voice.provider,
+                                            language: prefs.language
+                                        )
+                                    }
+                                }
+                            }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
+                    .listRowInsets(EdgeInsets())
                     Picker("Language", selection: languageBinding) {
                         if prefs.language == nil { Text("Server default").tag("") }
                         ForEach(prefs.languages, id: \.self) { Text(languageLabel($0)).tag($0) }
@@ -77,7 +89,7 @@ struct SettingsView: View {
             } header: {
                 Text("Generation")
             } footer: {
-                Text("Used when your AI chat generates audio without picking a voice.")
+                Text("Tap a voice to hear it introduce itself. Used when your AI chat generates audio without picking a voice.")
             }
             .listRowBackground(Theme.surface)
 
@@ -106,6 +118,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(auth: auth) }
+        .onDisappear { preview.stop() }
         .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { Task { await auth.logout() } }
             Button("Cancel", role: .cancel) {}
@@ -126,16 +139,6 @@ struct SettingsView: View {
     }
 
     // Empty tag "" = server default (shown only while unset); picking an option saves it.
-    private var providerBinding: Binding<String> {
-        Binding(
-            get: { model.prefs?.provider ?? "" },
-            set: { p in
-                guard !p.isEmpty, p != model.prefs?.provider else { return }
-                Task { await model.save(provider: p) }
-            }
-        )
-    }
-
     private var languageBinding: Binding<String> {
         Binding(
             get: { model.prefs?.language ?? "" },
@@ -148,14 +151,6 @@ struct SettingsView: View {
 
     private func languageLabel(_ code: String) -> String {
         Locale.current.localizedString(forLanguageCode: code)?.capitalized ?? code
-    }
-
-    private func providerLabel(_ id: String) -> String {
-        switch id {
-        case "openai": return "OpenAI"
-        case "fish": return "Fish Audio"
-        default: return id.capitalized
-        }
     }
 
     private var appVersion: String {
@@ -215,59 +210,59 @@ final class VoicePreviewPlayer {
     }
 }
 
-struct VoicePickerView: View {
-    var model: SettingsModel
-    @State private var preview = VoicePreviewPlayer()
+// Square card: orb + name + provider. Tapping selects the voice and plays its
+// intro; the orb goes thinking while loading and speaking while the sample plays.
+private struct VoiceOrbCard: View {
+    let voice: API.Voice
+    let selected: Bool
+    let preview: VoicePreviewPlayer
+    let tap: () -> Void
+
+    private var providerLabel: String {
+        switch voice.provider {
+        case "openai": return "OpenAI"
+        case "fish": return "Fish Audio"
+        default: return voice.provider.capitalized
+        }
+    }
 
     var body: some View {
-        List {
-            Section {
-                ForEach(model.prefs?.voices ?? [], id: \.self) { voice in
-                    HStack(spacing: 12) {
-                        Button {
-                            Task {
-                                await preview.toggle(
-                                    voice: voice,
-                                    provider: model.prefs?.provider,
-                                    language: model.prefs?.language
-                                )
-                            }
-                        } label: {
-                            if preview.loadingVoice == voice {
-                                ProgressView().frame(width: 28)
-                            } else {
-                                Image(systemName: preview.playingVoice == voice
-                                    ? "stop.circle.fill" : "play.circle")
-                                    .font(.title2)
-                                    .foregroundStyle(Theme.accent)
-                                    .frame(width: 28)
-                            }
-                        }
-                        .buttonStyle(.borderless)
-
-                        Button {
-                            Task { await model.save(voice: voice) }
-                        } label: {
-                            HStack {
-                                Text(voice.capitalized).foregroundStyle(Theme.ink)
-                                Spacer()
-                                if model.prefs?.voice == voice {
-                                    Image(systemName: "checkmark").foregroundStyle(Theme.accent)
-                                }
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    .listRowBackground(Theme.surface)
-                }
-            } footer: {
-                Text("Tap ▶ to hear each voice introduce itself.")
+        Button(action: tap) {
+            VStack(spacing: 4) {
+                orb.frame(width: 76, height: 76)
+                Text(voice.name.capitalized)
+                    .font(.footnote.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Theme.accent : Theme.ink)
+                Text(providerLabel)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.ink2)
             }
+            .frame(width: 104, height: 128)
+            .background(Theme.bg, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(selected ? Theme.accent : .clear, lineWidth: 1.5)
+            )
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg)
-        .navigationTitle("Default voice")
-        .navigationBarTitleDisplayMode(.inline)
-        .onDisappear { preview.stop() }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private var orb: some View {
+        let palette = OrbPalettes.palette(for: voice.name)
+        if preview.playingVoice == voice.name {
+            TimelineView(.animation) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                // ponytail: fake speech envelope (syllable + phrase sines); swap in
+                // real audio metering (MTAudioProcessingTap) if fidelity ever matters.
+                let level = min(1, max(0, 0.55 + 0.25 * sin(t * 24) + 0.2 * sin(t * 4.4 + 1.3)))
+                VoiceOrbView(state: .speaking, level: level, palette: palette)
+            }
+        } else {
+            VoiceOrbView(
+                state: preview.loadingVoice == voice.name ? .thinking : .idle,
+                level: 0,
+                palette: palette
+            )
+        }
     }
 }

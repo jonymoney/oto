@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import type { RequestHandler } from 'express'
 import { audioRepo, usageRepo, prefsRepo } from './db.js'
-import { VOICES } from './tts.js'
+import { VOICES, FISH_VOICES, providerForVoice } from './tts.js'
 import { presignAudioUrl, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
@@ -122,8 +122,9 @@ export function apiRouter(): Router {
   )
 
   // Per-user generation preferences. null = server default; the allowed lists
-  // let the client render its pickers without hardcoding them.
-  const enabledProviders = () => (config.fishEnabled ? ['openai', 'fish'] : ['openai'])
+  // let the client render its pickers without hardcoding them. The provider is
+  // implied by the chosen voice, so there is no separate provider choice.
+  const voiceNames = () => [...VOICES, ...(config.fishEnabled ? Object.keys(FISH_VOICES) : [])]
   // BCP-47 primary tags; the client renders localized display names.
   const LANGUAGES = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'zh', 'hi']
   const prefsPayload = (prefs: {
@@ -132,8 +133,7 @@ export function apiRouter(): Router {
     language: string | null
   }) => ({
     ...prefs,
-    voices: [...VOICES],
-    providers: enabledProviders(),
+    voices: voiceNames().map((name) => ({ name, provider: providerForVoice(name) })),
     languages: LANGUAGES,
   })
 
@@ -149,21 +149,15 @@ export function apiRouter(): Router {
     '/prefs',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const { voice, provider, language } = (req.body ?? {}) as {
-        voice?: unknown
-        provider?: unknown
-        language?: unknown
-      }
-      if (voice !== undefined && (typeof voice !== 'string' || !VOICES.includes(voice))) {
-        return res.status(400).json({ error: `voice must be one of: ${VOICES.join(', ')}` })
-      }
-      const providers = enabledProviders()
-      if (provider !== undefined && (typeof provider !== 'string' || !providers.includes(provider))) {
-        return res.status(400).json({ error: `provider must be one of: ${providers.join(', ')}` })
+      const { voice, language } = (req.body ?? {}) as { voice?: unknown; language?: unknown }
+      if (voice !== undefined && (typeof voice !== 'string' || !voiceNames().includes(voice))) {
+        return res.status(400).json({ error: `voice must be one of: ${voiceNames().join(', ')}` })
       }
       if (language !== undefined && (typeof language !== 'string' || !LANGUAGES.includes(language))) {
         return res.status(400).json({ error: `language must be one of: ${LANGUAGES.join(', ')}` })
       }
+      // Picking a voice pins its provider too, keeping older rows consistent.
+      const provider = voice !== undefined ? providerForVoice(voice as string) : undefined
       res.json(prefsPayload(await prefsRepo.set(userId, { voice, provider, language })))
     }),
   )

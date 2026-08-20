@@ -222,14 +222,17 @@ enum API {
 
     // MARK: Prefs
 
-    /// nil voice/provider = server default; voices/providers are the allowed
-    /// picker options (fish only appears when the server has it configured).
+    /// nil voice = server default. Each voice carries its provider (openai/fish);
+    /// fish voices only appear when the server has the key configured.
+    struct Voice: Decodable, Hashable {
+        let name: String
+        let provider: String
+    }
+
     struct Prefs: Decodable {
         let voice: String?
-        let provider: String?
         let language: String?
-        let voices: [String]
-        let providers: [String]
+        let voices: [Voice]
         let languages: [String]
     }
 
@@ -239,14 +242,11 @@ enum API {
     }
 
     /// Partial update — only the fields passed change on the server.
-    static func updatePrefs(
-        voice: String? = nil, provider: String? = nil, language: String? = nil
-    ) async throws -> Prefs {
+    static func updatePrefs(voice: String? = nil, language: String? = nil) async throws -> Prefs {
         var req = request("api/prefs", method: "PUT")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: String] = [:]
         if let voice { body["voice"] = voice }
-        if let provider { body["provider"] = provider }
         if let language { body["language"] = language }
         req.httpBody = try JSONEncoder().encode(body)
         let (data, _) = try await send(req)
@@ -255,8 +255,13 @@ enum API {
 
     private struct PreviewURL: Decodable { let url: String }
 
-    /// Presigned URL of the short sample where the voice introduces itself.
+    /// URL of the short sample where the voice introduces itself. Samples are
+    /// cached in Caches/previews on first play, so replays are local and offline.
     static func voicePreviewURL(voice: String, provider: String?, language: String?) async throws -> URL {
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("previews/\(provider ?? "default")/\(language ?? "default")", isDirectory: true)
+        let local = cacheDir.appendingPathComponent("\(voice).mp3")
+        if FileManager.default.fileExists(atPath: local.path) { return local }
         var req = request("api/voices/\(voice)/preview")
         // appendingPathComponent would percent-encode "?", so add the query here.
         if let u = req.url, var comps = URLComponents(url: u, resolvingAgainstBaseURL: false) {
@@ -270,7 +275,10 @@ enum API {
         guard let url = URL(string: try JSONDecoder().decode(PreviewURL.self, from: data).url) else {
             throw APIError.badResponse
         }
-        return url
+        let (audio, _) = try await URLSession.shared.data(from: url)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        try audio.write(to: local)
+        return local
     }
 
     // MARK: Billing

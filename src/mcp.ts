@@ -11,7 +11,15 @@ import { z } from 'zod'
 import { config } from './config.js'
 import { audioRepo, usageRepo, prefsRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
-import { synthesize, resolveVoice, chunkText, estimateSec, VOICES } from './tts.js'
+import {
+  synthesize,
+  resolveVoice,
+  chunkText,
+  estimateSec,
+  VOICES,
+  FISH_VOICES,
+  providerForVoice,
+} from './tts.js'
 import type { TtsProvider } from './tts.js'
 import { startGenerationJob } from './jobs.js'
 import { userIdFrom, authUserFrom } from './auth.js'
@@ -261,7 +269,7 @@ export function buildServer(): McpServer {
         'Convert text to spoken audio and show an inline audio player. ' +
         'Audio is generated once and stored: repeating the same text/voice returns the existing audio. ' +
         `Texts over ${SYNC_THRESHOLD} characters generate in the background — the player shows progress and updates itself when ready. ` +
-        `Voices: ${VOICES.join(', ')}.` +
+        `Voices: ${[...VOICES, ...(config.fishEnabled ? Object.keys(FISH_VOICES) : [])].join(', ')}.` +
         (quotaSec > 0
           ? ` Each user can generate up to ${config.QUOTA_MINUTES} minutes of new audio; stored audios stay playable for free.`
           : ''),
@@ -326,18 +334,14 @@ export function buildServer(): McpServer {
         }
 
         // User prefs fill in what the request leaves unspecified: pref voice
-        // when no voice arg, pref provider always (there's no provider arg).
+        // when no voice arg. The provider is implied by the resolved voice.
         const prefs = await prefsRepo.get(userId)
         // Pref language fills in missing language metadata (display-only).
         meta.language ??= prefs.language
-        const provider: TtsProvider =
-          prefs.provider === 'fish' && config.fishEnabled
-            ? 'fish'
-            : prefs.provider === 'openai'
-              ? 'openai'
-              : config.TTS_PROVIDER
-        const model = provider === 'fish' ? config.FISH_MODEL : config.TTS_MODEL
         const resolvedVoice = resolveVoice(voice ?? prefs.voice ?? undefined)
+        const provider: TtsProvider =
+          providerForVoice(resolvedVoice) === 'fish' ? 'fish' : config.TTS_PROVIDER
+        const model = provider === 'fish' ? config.FISH_MODEL : config.TTS_MODEL
         const hash = contentHash(cleanText, resolvedVoice, model, instructions?.trim() || undefined)
 
         let existing = await audioRepo.findByHash(userId, hash)

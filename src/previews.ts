@@ -1,8 +1,7 @@
 import { Router } from 'express'
 import type { RequestHandler } from 'express'
 import { config } from './config.js'
-import { synthesize, VOICES } from './tts.js'
-import type { TtsProvider } from './tts.js'
+import { synthesize, VOICES, FISH_VOICES, providerForVoice } from './tts.js'
 import { audioObjectExists, putAudio, presignAudioUrl } from './storage.js'
 
 // Voice preview samples ("hey, I'm coral…"). Generated once per
@@ -28,6 +27,12 @@ const SCRIPTS: Record<PreviewLang, Record<string, string>> = {
     verse: "Hey, I'm Verse. Every sentence you write? I make it sound like poetry. Mostly.",
     marin: "Hey, I'm Marin. Clear, friendly, and told repeatedly that I sound trustworthy. Suspicious, right?",
     cedar: "Hey, I'm Cedar. Grounded, natural, and rumored to smell great. That part's unverifiable.",
+    sarah: "Hey, I'm Sarah. Soft, sincere, and yes — I whisper even when it's not a secret.",
+    ethan: "Hey, I'm Ethan. Calm, measured, and narrating your life like it's a nature documentary.",
+    adrian: "Hey, I'm Adrian. Deep, slow, and dramatic. Even this introduction... has a plot twist.",
+    jasphina: "Hey, I'm Jasphina! Fast, playful, and already three sentences ahead of you. Catch up!",
+    blaze: "Hey, I'm Blaze! Loud, proud, and treating every sentence like a season finale!",
+    grim: "Hey... I'm Grim. I read bedtime stories. Nobody sleeps afterwards.",
   },
   es: {
     alloy: 'Hola, soy Alloy. Equilibrado, confiable, y siempre el primero que eligen en el recreo.',
@@ -43,6 +48,12 @@ const SCRIPTS: Record<PreviewLang, Record<string, string>> = {
     verse: 'Hola, soy Verse. Cada frase tuya la hago sonar a poesía. Bueno, casi todas.',
     marin: 'Hola, soy Marin. Clara, amable, y dicen que sueno confiable. Sospechoso, ¿no?',
     cedar: 'Hola, soy Cedar. Natural, con los pies en la tierra, y dicen que huelo bien. Nadie lo ha comprobado.',
+    sarah: 'Hola, soy Sarah. Suave, sincera, y sí — susurro aunque no sea un secreto.',
+    ethan: 'Hola, soy Ethan. Tranquilo, preciso, y narrando tu vida como un documental de naturaleza.',
+    adrian: 'Hola, soy Adrian. Profundo, lento, y dramático. Hasta esta introducción... tiene un giro inesperado.',
+    jasphina: '¡Hola, soy Jasphina! Rápida, juguetona, y ya voy tres frases adelante. ¡Alcánzame!',
+    blaze: '¡Hola, soy Blaze! Fuerte, orgulloso, y tratando cada frase como un final de temporada.',
+    grim: 'Hola... soy Grim. Leo cuentos para dormir. Después nadie duerme.',
   },
 }
 
@@ -59,11 +70,14 @@ export function previewsRouter(): Router {
     '/voices/:voice/preview',
     wrap(async (req, res) => {
       const voice = String(req.params.voice).toLowerCase()
-      if (!VOICES.includes(voice)) {
+      if (!VOICES.includes(voice) && !FISH_VOICES[voice]) {
         return res.status(404).json({ error: 'Unknown voice' })
       }
-      const provider: TtsProvider =
-        req.query.provider === 'fish' && config.fishEnabled ? 'fish' : 'openai'
+      // Provider is implied by the voice; fish voices need the key configured.
+      const provider = providerForVoice(voice)
+      if (provider === 'fish' && !config.fishEnabled) {
+        return res.status(404).json({ error: 'Unknown voice' })
+      }
       const lang: PreviewLang = req.query.lang === 'es' ? 'es' : 'en'
 
       const key = `previews/${provider}/${lang}/${voice}.mp3`

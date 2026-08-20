@@ -19,11 +19,27 @@ export const VOICES: readonly string[] = [
   'cedar',
 ]
 
+/** Fish Audio marketplace voices: picker name → reference id. */
+export const FISH_VOICES: Record<string, string> = {
+  sarah: '933563129e564b19a115bedd57b7406a', // soft, breathy, sincere
+  ethan: '536d3a5e000945adb7038665781a4aca', // calm documentary narrator
+  adrian: 'bf322df2096a46f18c579d0baa36f41d', // deep, slow, dramatic storyteller
+  jasphina: 'e9b134e4c0b547a3894793be502314f1', // playful, animated, fast
+  blaze: '802e3bc2b27e49c2995d23ef70e6ac89', // bright, energetic announcer
+  grim: 'ef9c79b62ef34530bf452c0e50e3c260', // low, mysterious horror narrator
+}
+
+/** The provider is implied by the voice name — there is no separate provider choice. */
+export function providerForVoice(voice?: string | null): TtsProvider {
+  return voice && FISH_VOICES[voice.trim().toLowerCase()] ? 'fish' : 'openai'
+}
+
 export function resolveVoice(voice?: string): string {
   if (voice) {
     const normalized = voice.trim().toLowerCase()
     const match = VOICES.find((v) => v === normalized)
     if (match) return match
+    if (FISH_VOICES[normalized]) return normalized
   }
   return config.TTS_VOICE
 }
@@ -136,14 +152,14 @@ async function synthesizeAll(
   const input = text.trim()
   if (!input) throw new Error('Cannot synthesize speech from empty text')
 
-  // ponytail: Fish Audio behind TTS_PROVIDER for the ear-test spike vs gpt-4o-mini-tts.
-  // Per-request override (user pref) wins over the global switch.
-  const fish = (opts.provider ?? config.TTS_PROVIDER) === 'fish'
-  // For Fish, "voice" is the reference id (VOICES is OpenAI-specific); model comes from FISH_MODEL.
+  // A Fish catalog voice name implies fish; otherwise the explicit/global provider.
+  const requested = opts.voice?.trim().toLowerCase()
+  const fishRef = requested ? FISH_VOICES[requested] : undefined
+  const fish = fishRef !== undefined || (opts.provider ?? config.TTS_PROVIDER) === 'fish'
   const model = fish ? config.FISH_MODEL : config.TTS_MODEL
-  const voice = fish
-    ? (config.FISH_REFERENCE_ID ?? config.FISH_MODEL)
-    : resolveVoice(opts.voice)
+  // Keep the friendly name in results/history; the reference id only goes to the API.
+  const voice = fish ? (fishRef ? requested! : 'fish') : resolveVoice(opts.voice)
+  const referenceId = fishRef ?? config.FISH_REFERENCE_ID
   const instructions = opts.instructions?.trim()
   const withInstructions = !fish && instructions && !MODELS_WITHOUT_INSTRUCTIONS.has(model)
 
@@ -159,7 +175,7 @@ async function synthesizeAll(
     chunks.map((chunk) =>
       (async () => {
         const buffer = fish
-          ? await fishSynthChunk(chunk)
+          ? await fishSynthChunk(chunk, referenceId)
           : await openaiSynthChunk(chunk, {
               model,
               voice,
@@ -210,8 +226,8 @@ async function openaiSynthChunk(
 }
 
 // Fish selects the model via an HTTP header named `model`; the voice is `reference_id`.
-async function fishSynthChunk(chunk: string): Promise<Buffer> {
-  if (!config.FISH_API_KEY) throw new Error('TTS_PROVIDER=fish but FISH_API_KEY is not set')
+async function fishSynthChunk(chunk: string, referenceId?: string): Promise<Buffer> {
+  if (!config.FISH_API_KEY) throw new Error('Fish Audio voice requested but FISH_API_KEY is not set')
   const response = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
     headers: {
@@ -223,7 +239,7 @@ async function fishSynthChunk(chunk: string): Promise<Buffer> {
       text: chunk,
       format: 'mp3',
       mp3_bitrate: 128,
-      ...(config.FISH_REFERENCE_ID ? { reference_id: config.FISH_REFERENCE_ID } : {}),
+      ...(referenceId ? { reference_id: referenceId } : {}),
     }),
   })
   if (!response.ok) {
