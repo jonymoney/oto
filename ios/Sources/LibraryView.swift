@@ -38,7 +38,13 @@ final class LibraryModel {
 
 struct LibraryView: View {
     @Environment(AuthManager.self) private var auth
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model = LibraryModel()
+
+    /// Poll while something is still generating and the app is frontmost.
+    private var isPolling: Bool {
+        scenePhase == .active && model.items.contains { $0.status == "processing" }
+    }
 
     var body: some View {
         NavigationStack {
@@ -63,8 +69,19 @@ struct LibraryView: View {
             }
             .refreshable { await model.load(auth: auth) }
             .task { await model.load(auth: auth) }
+            .task(id: isPolling) {
+                guard isPolling else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    await model.load(auth: auth)
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await model.load(auth: auth) } }
+            }
             .overlay(alignment: .bottom) {
-                if let err = model.errorMessage {
+                if let err = model.errorMessage, !model.items.isEmpty {
                     Text(err).font(.footnote).foregroundStyle(Theme.danger).padding()
                 }
             }
@@ -75,10 +92,67 @@ struct LibraryView: View {
         if model.loading && model.items.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.items.isEmpty {
-            ContentUnavailableView("No audios yet", systemImage: "waveform",
-                description: Text("Generate audio in your AI chat and it shows up here."))
+            // ScrollView host so pull-to-refresh works in empty/error states too.
+            ScrollView {
+                Group {
+                    if model.errorMessage != nil {
+                        ContentUnavailableView {
+                            Label("Couldn't load", systemImage: "wifi.slash")
+                        } description: {
+                            Text("Check your connection and try again.")
+                        } actions: {
+                            Button("Retry") { Task { await model.load(auth: auth) } }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    } else {
+                        ContentUnavailableView("No audios yet", systemImage: "waveform",
+                            description: Text("Generate audio in your AI chat and it shows up here."))
+                    }
+                }
+                .containerRelativeFrame(.vertical)
+            }
         } else {
-            List(model.items) { item in
+            List {
+                if !continueItems.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 14) {
+                                ForEach(continueItems) { item in
+                                    NavigationLink(value: item) { ContinueCard(item: item) }
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 4)
+                        }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    } header: {
+                        Text("Continue Listening").foregroundStyle(Theme.ink2)
+                    }
+                }
+                Section {
+                    mainRows
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    /// Items with a meaningful saved position (>5s, <95% done), freshest first.
+    /// The local ResumeStore mirror wins over the server value (offline plays).
+    private var continueItems: [AudioItem] {
+        let candidates = model.items.filter { item in
+            guard item.status == "ready", let d = item.durationSec, d > 0 else { return false }
+            let pos = ResumeStore.get(item.id) ?? item.positionSec ?? 0
+            return pos > 5 && pos < d * 0.95
+        }
+        return Array(candidates.sorted { ($0.playedAt ?? "") > ($1.playedAt ?? "") }.prefix(10))
+    }
+
+    private var mainRows: some View {
+            ForEach(model.items) { item in
                 NavigationLink(value: item) {
                     HStack(spacing: 12) {
                         CoverThumb(item: item, size: 56)
@@ -90,12 +164,17 @@ struct LibraryView: View {
                             HStack(spacing: 8) {
                                 Text(item.voice)
                                 if let d = item.durationSec { Text(timecode(d)) }
-                                if item.status != "ready" { Text(item.status).foregroundStyle(Theme.accent) }
+                                if item.status == "processing" {
+                                    ProgressView().controlSize(.mini)
+                                    Text("Generating…").foregroundStyle(Theme.accent)
+                                } else if item.status != "ready" {
+                                    Text(item.status).foregroundStyle(Theme.danger)
+                                }
                             }
                             .font(.caption).foregroundStyle(Theme.ink2)
                         }
                         Spacer(minLength: 8)
-                        DownloadAccessory(item: item)
+                        if item.status == "ready" { DownloadAccessory(item: item) }
                     }
                 }
                 .listRowBackground(Theme.surface)
@@ -104,7 +183,7 @@ struct LibraryView: View {
                         Button("Remove download", systemImage: "trash", role: .destructive) {
                             Downloads.shared.remove(item.id)
                         }
-                    } else if !Downloads.shared.inProgress.contains(item.id) {
+                    } else if item.status == "ready", !Downloads.shared.inProgress.contains(item.id) {
                         Button("Download", systemImage: "arrow.down.circle") {
                             Task { await Downloads.shared.download(item) }
                         }
@@ -115,7 +194,7 @@ struct LibraryView: View {
                         Button("Remove", role: .destructive) {
                             Downloads.shared.remove(item.id)
                         }
-                    } else {
+                    } else if item.status == "ready" {
                         Button("Download") {
                             Task { await Downloads.shared.download(item) }
                         }
@@ -123,8 +202,6 @@ struct LibraryView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-        }
     }
 }
 
@@ -217,6 +294,37 @@ struct DownloadAccessory: View {
             }
             .buttonStyle(.borderless)
         }
+    }
+}
+
+/// Continue Listening card: cover, one-line title, thin progress bar.
+struct ContinueCard: View {
+    let item: AudioItem
+
+    private var progress: Double {
+        guard let d = item.durationSec, d > 0 else { return 0 }
+        let pos = ResumeStore.get(item.id) ?? item.positionSec ?? 0
+        return min(max(pos / d, 0), 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CoverThumb(item: item, size: 96)
+            Text(item.title)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .foregroundStyle(Theme.ink)
+            Capsule().fill(Theme.line)
+                .frame(height: 3)
+                .overlay(alignment: .leading) {
+                    GeometryReader { geo in
+                        Capsule().fill(Theme.accent)
+                            .frame(width: geo.size.width * progress)
+                    }
+                }
+                .clipShape(Capsule())
+        }
+        .frame(width: 96)
     }
 }
 

@@ -28,11 +28,18 @@ final class AuthManager {
 
     var isSignedIn: Bool { phase == .signedIn }
 
+    /// Lenient local@domain.tld shape check — no provider whitelist, allows
+    /// plus-addressing, subdomains, and long TLDs. Server does the real check.
+    nonisolated static func looksLikeEmail(_ raw: String) -> Bool {
+        raw.trimmingCharacters(in: .whitespaces)
+            .range(of: #"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$"#, options: .regularExpression) != nil
+    }
+
     // MARK: Email OTP
 
     func sendCode(email raw: String) async {
         let email = raw.trimmingCharacters(in: .whitespaces)
-        guard email.contains("@") else { return }   // empty/invalid ignored silently
+        guard Self.looksLikeEmail(email) else { return }   // empty/invalid ignored silently
         Log.auth.notice("sending OTP to \(email, privacy: .public)")
         isWorking = true; defer { isWorking = false }
         do {

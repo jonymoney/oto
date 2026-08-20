@@ -25,6 +25,8 @@ interface AudioRow {
   chunks_done: number
   error_message: string | null
   slug: string | null
+  position_sec: number | null
+  played_at: Date | string | null
 }
 
 function mapRow(row: AudioRow): AudioRecord {
@@ -54,6 +56,13 @@ function mapRow(row: AudioRow): AudioRecord {
     chunksDone: row.chunks_done,
     errorMessage: row.error_message,
     slug: row.slug,
+    positionSec: row.position_sec === null ? null : Number(row.position_sec),
+    playedAt:
+      row.played_at === null
+        ? null
+        : row.played_at instanceof Date
+          ? row.played_at.toISOString()
+          : new Date(row.played_at).toISOString(),
   }
 }
 
@@ -125,7 +134,9 @@ export async function initDb(): Promise<void> {
       add column if not exists language text,
       add column if not exists mood text,
       add column if not exists tags text[] not null default '{}',
-      add column if not exists slug text
+      add column if not exists slug text,
+      add column if not exists position_sec double precision,
+      add column if not exists played_at timestamptz
   `)
   // Short share links: slug unique per user (nulls exempt — lazily backfilled).
   await pool.query(`
@@ -214,7 +225,7 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug'
+  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at'
 
 export const audioRepo = {
   async findByHash(userId: string, textHash: string): Promise<AudioRecord | null> {
@@ -340,6 +351,15 @@ export const audioRepo = {
       [userId, id],
     )
     return rows[0] ? mapRow(rows[0]) : null
+  },
+
+  /** Continue Listening: stores the playback position and stamps played_at. False = no such row. */
+  async setPosition(userId: string, audioId: string, positionSec: number): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      'update audios set position_sec = $3, played_at = now() where user_id = $1 and id = $2',
+      [userId, audioId, positionSec],
+    )
+    return (rowCount ?? 0) > 0
   },
 
   async markChunkDone(id: string): Promise<void> {

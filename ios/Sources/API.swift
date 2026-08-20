@@ -14,9 +14,11 @@ struct AudioItem: Identifiable, Codable, Hashable {
     let mood: String?
     let tags: [String]
     let shareUrl: String?
+    let positionSec: Double?
+    let playedAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl
+        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -34,6 +36,8 @@ struct AudioItem: Identifiable, Codable, Hashable {
         mood = try c.decodeIfPresent(String.self, forKey: .mood)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         shareUrl = try c.decodeIfPresent(String.self, forKey: .shareUrl)
+        positionSec = try c.decodeIfPresent(Double.self, forKey: .positionSec)
+        playedAt = try c.decodeIfPresent(String.self, forKey: .playedAt)
     }
 }
 
@@ -56,9 +60,11 @@ struct AudioDetail: Decodable {
     let mood: String?
     let tags: [String]
     let shareUrl: String?
+    let positionSec: Double?
+    let playedAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl
+        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +82,8 @@ struct AudioDetail: Decodable {
         mood = try c.decodeIfPresent(String.self, forKey: .mood)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         shareUrl = try c.decodeIfPresent(String.self, forKey: .shareUrl)
+        positionSec = try c.decodeIfPresent(Double.self, forKey: .positionSec)
+        playedAt = try c.decodeIfPresent(String.self, forKey: .playedAt)
     }
 }
 
@@ -199,6 +207,17 @@ enum API {
     static func audioDetail(id: String) async throws -> AudioDetail {
         let (data, _) = try await send(request("api/audios/\(id)"))
         return try JSONDecoder().decode(AudioDetail.self, from: data)
+    }
+
+    /// Continue Listening: best-effort position report — failures are silent
+    /// (the local ResumeStore mirror keeps resume working offline).
+    static func reportPosition(id: String, positionSec: Double) {
+        Task {
+            var req = request("api/audios/\(id)/position", method: "PUT")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONEncoder().encode(["positionSec": positionSec])
+            _ = try? await send(req)
+        }
     }
 
     struct FreshURL: Decodable { let audioUrl: String }

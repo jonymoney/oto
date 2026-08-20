@@ -3,12 +3,31 @@ import AVFoundation
 import Combine
 import MediaPlayer
 
+/// Local mirror of the last reported playback position per audio id, so
+/// downloaded/offline playback resumes too and syncs opportunistically later.
+enum ResumeStore {
+    private static let key = "resumePositions"
+
+    static func get(_ id: String) -> Double? {
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: Double])?[id]
+    }
+
+    static func set(_ id: String, _ positionSec: Double) {
+        var d = (UserDefaults.standard.dictionary(forKey: key) as? [String: Double]) ?? [:]
+        if positionSec <= 0 { d.removeValue(forKey: id) } else { d[id] = positionSec }
+        UserDefaults.standard.set(d, forKey: key)
+    }
+}
+
 @MainActor
 @Observable
 final class PlayerModel {
     var detail: AudioDetail?
     var loading = true
     var errorMessage: String?
+    /// True while the full PlayerView is on screen — hides the mini-player bar.
+    var fullPlayerVisible = false
+    private(set) var item: AudioItem?
     private(set) var hasAudio = false
     private(set) var playing = false
     private(set) var position: Double = 0
@@ -16,11 +35,17 @@ final class PlayerModel {
     private(set) var speed: Float = 1
 
     private var player: AVPlayer?
-    private var item: AudioItem?
     private var timeObserver: Any?
     private var cancellables: Set<AnyCancellable> = []
+    private var lastReportAt = Date.distantPast
 
     func load(item: AudioItem, auth: AuthManager) async {
+        // Re-opening the currently loaded (or in-flight) audio → keep playing as-is.
+        if let cur = self.item, cur.id == item.id, hasAudio || loading { return }
+        teardown() // switching audios: stop the old one
+        detail = nil
+        hasAudio = false
+        position = 0
         self.item = item
         loading = true; errorMessage = nil
         duration = item.durationSec ?? 0
@@ -29,6 +54,7 @@ final class PlayerModel {
         // Downloaded → play the local file, offline and instant; skip the fetch.
         if let local = Downloads.shared.localURL(item.id) {
             attach(AVPlayer(url: local))
+            resumeIfNeeded()
             loading = false
             return
         }
@@ -38,6 +64,7 @@ final class PlayerModel {
             if let ds = d.durationSec { duration = ds }
             if let urlStr = d.audioUrl, let url = URL(string: urlStr) {
                 attach(AVPlayer(url: url))
+                resumeIfNeeded()
             }
         } catch APIError.unauthorized {
             auth.sessionExpired()
@@ -51,6 +78,7 @@ final class PlayerModel {
         player = p
         p.defaultRate = speed
         hasAudio = true
+        lastReportAt = .now // first periodic report ~5s into playback
         timeObserver = p.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
@@ -62,8 +90,11 @@ final class PlayerModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 MainActor.assumeIsolated {
-                    self?.playing = status != .paused
-                    self?.updateNowPlaying()
+                    guard let self else { return }
+                    let wasPlaying = self.playing
+                    self.playing = status != .paused
+                    if wasPlaying && !self.playing { self.report() } // pause → save position
+                    self.updateNowPlaying()
                 }
             }
             .store(in: &cancellables)
@@ -81,6 +112,7 @@ final class PlayerModel {
         if let d = player?.currentItem?.duration, d.isNumeric, d.seconds > 0 {
             duration = d.seconds
         }
+        if playing, Date.now.timeIntervalSince(lastReportAt) >= 5 { report() }
         updateNowPlaying()
     }
 
@@ -88,7 +120,29 @@ final class PlayerModel {
         player?.pause()
         player?.seek(to: .zero)
         position = 0
+        report(0) // finished → clear the saved position
         updateNowPlaying()
+    }
+
+    // MARK: Continue Listening
+
+    /// Persist the position: local mirror always (offline resume), server
+    /// best-effort. Called throttled from tick, plus on pause/stop/switch/end.
+    private func report(_ positionSec: Double? = nil) {
+        guard let item, hasAudio else { return }
+        let p = max(positionSec ?? position, 0)
+        ResumeStore.set(item.id, p)
+        API.reportPosition(id: item.id, positionSec: p)
+        lastReportAt = .now
+    }
+
+    /// Audible-style auto-resume: seek to the saved position (server value from
+    /// detail, else the local mirror) when it's meaningfully mid-audio.
+    private func resumeIfNeeded() {
+        guard let item else { return }
+        let saved = detail?.positionSec ?? ResumeStore.get(item.id) ?? 0
+        guard saved > 5, duration > 0, saved < duration - 5 else { return }
+        seek(to: saved)
     }
 
     func toggle() {
@@ -116,6 +170,16 @@ final class PlayerModel {
     }
 
     func stop() {
+        teardown()
+        item = nil
+        detail = nil
+        hasAudio = false
+        position = 0
+        duration = 0
+    }
+
+    private func teardown() {
+        report() // switching/stopping mid-audio → save where we left off
         player?.pause()
         if let t = timeObserver { player?.removeTimeObserver(t) }
         timeObserver = nil
@@ -124,6 +188,18 @@ final class PlayerModel {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         player = nil
         playing = false
+    }
+
+    /// One generation-status poll: re-fetch detail and attach once the audio
+    /// URL appears. Transient failures are silent — the caller keeps polling.
+    func pollGenerating() async {
+        guard let item, !hasAudio else { return }
+        guard let d = try? await API.audioDetail(id: item.id) else { return }
+        detail = d
+        if let ds = d.durationSec { duration = ds }
+        if let urlStr = d.audioUrl, let url = URL(string: urlStr) {
+            attach(AVPlayer(url: url))
+        }
     }
 
     // MARK: Now Playing / lock screen
@@ -180,7 +256,7 @@ final class PlayerModel {
 struct PlayerView: View {
     let item: AudioItem
     @Environment(AuthManager.self) private var auth
-    @State private var model = PlayerModel()
+    @Environment(PlayerModel.self) private var model
     @State private var scrub: Double?                       // drag-in-progress target
     @State private var coverImage = Image(systemName: "waveform")
 
@@ -244,6 +320,13 @@ struct PlayerView: View {
                     ProgressView()
                 } else if let err = model.errorMessage {
                     Text(err).foregroundStyle(Theme.danger)
+                } else if !model.hasAudio {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Generating audio…")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.ink2)
                 } else {
                     VStack(spacing: 4) {
                         Slider(
@@ -277,10 +360,10 @@ struct PlayerView: View {
                     .foregroundStyle(Theme.accent)
                     .disabled(!model.hasAudio)
 
-                    Menu {
-                        ForEach(Self.speeds, id: \.self) { s in
-                            Button(speedLabel(s)) { model.setSpeed(s) }
-                        }
+                    // Tap cycles 1x → 1.25x → 1.5x → 2x → back to 1x.
+                    Button {
+                        let i = Self.speeds.firstIndex(of: model.speed) ?? 0
+                        model.setSpeed(Self.speeds[(i + 1) % Self.speeds.count])
                     } label: {
                         Text(speedLabel(model.speed))
                             .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -288,7 +371,9 @@ struct PlayerView: View {
                             .padding(.horizontal, 12).padding(.vertical, 6)
                             .background(Theme.surface, in: Capsule())
                             .overlay(Capsule().stroke(Theme.line))
+                            .contentTransition(.numericText())
                     }
+                    .animation(.snappy(duration: 0.2), value: model.speed)
                     .disabled(!model.hasAudio)
                 }
             }
@@ -310,8 +395,16 @@ struct PlayerView: View {
             renderer.scale = 2
             if let ui = renderer.uiImage { coverImage = Image(uiImage: ui) }
             await model.load(item: item, auth: auth)
+            // Still generating server-side → poll until the audio URL appears.
+            // The .task is cancelled on disappear, which ends the loop.
+            while !Task.isCancelled, model.item?.id == item.id,
+                  !model.hasAudio, model.errorMessage == nil {
+                try? await Task.sleep(for: .seconds(4))
+                await model.pollGenerating()
+            }
         }
-        .onDisappear { model.stop() }
+        .onAppear { model.fullPlayerVisible = true }
+        .onDisappear { model.fullPlayerVisible = false } // playback continues
     }
 
     private func speedLabel(_ s: Float) -> String {

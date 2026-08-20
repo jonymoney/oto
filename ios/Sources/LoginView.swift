@@ -84,7 +84,7 @@ struct LoginView: View {
                     Text("Continue").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(auth.method == .phone)
+                .disabled(auth.method == .phone || !AuthManager.looksLikeEmail(email))
             }
         }
         .padding(.top, 8)

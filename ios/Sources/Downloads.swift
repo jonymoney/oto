@@ -45,7 +45,7 @@ final class Downloads {
     // MARK: Mutations
 
     func download(_ item: AudioItem) async {
-        guard !isDownloaded(item.id), !inProgress.contains(item.id) else { return }
+        guard item.status == "ready", !isDownloaded(item.id), !inProgress.contains(item.id) else { return }
         inProgress.insert(item.id)
         defer { inProgress.remove(item.id) }
         do {

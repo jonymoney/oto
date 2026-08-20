@@ -29,6 +29,8 @@ function listItem(rec: AudioRecord) {
     charCount: rec.charCount,
     createdAt: rec.createdAt,
     status: rec.status,
+    positionSec: rec.positionSec,
+    playedAt: rec.playedAt,
   }
 }
 
@@ -88,6 +90,21 @@ export function apiRouter(): Router {
       if (!rec) return res.status(404).json({ error: 'Not found' })
       if (rec.status !== 'ready') return res.status(409).json({ error: `Audio is ${rec.status}` })
       res.json({ audioUrl: await presignAudioUrl(rec.objectKey), expiresIn: config.AUDIO_URL_TTL_SECONDS })
+    }),
+  )
+
+  // Continue Listening: the client reports the playback position (throttled).
+  router.put(
+    '/audios/:id/position',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const { positionSec } = (req.body ?? {}) as { positionSec?: unknown }
+      if (typeof positionSec !== 'number' || !Number.isFinite(positionSec) || positionSec < 0) {
+        return res.status(400).json({ error: 'positionSec must be a finite number >= 0' })
+      }
+      const found = await audioRepo.setPosition(userId, req.params.id, positionSec)
+      if (!found) return res.status(404).json({ error: 'Not found' })
+      res.status(204).end()
     }),
   )
 

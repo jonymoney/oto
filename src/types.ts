@@ -34,10 +34,14 @@ export interface AudioRecord {
   createdAt: string
   /** URL-safe short-link slug, unique per user (lazily assigned from the title). */
   slug: string | null
+  /** Continue Listening: last reported playback position in seconds. */
+  positionSec: number | null
+  /** When the position was last reported. */
+  playedAt: string | null
 }
 
 /** Fields required to insert a new audio row (slug is assigned post-insert). */
-export type NewAudio = Omit<AudioRecord, 'id' | 'createdAt' | 'slug'>
+export type NewAudio = Omit<AudioRecord, 'id' | 'createdAt' | 'slug' | 'positionSec' | 'playedAt'>
 
 /** structuredContent payload for the player UI after text_to_speech. */
 export type PlayerPayload = {
