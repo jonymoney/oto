@@ -318,7 +318,6 @@ struct PlayerView: View {
     @State private var showDeleteConfirm = false
     @State private var controlsOffscreen = false            // drives the compact nav header
     @State private var collections: [API.Collection] = []   // fetched on collection-button tap
-    @State private var showCollections = false
     @State private var addedToCollection = false            // brief checkmark confirmation
 
     private static let speeds: [Float] = [1, 1.25, 1.5, 2]
@@ -640,14 +639,14 @@ struct PlayerView: View {
         dismiss()                 // covers a navigation-pushed presentation too
     }
 
-    /// Quiet add-to-collection: fetches the list on tap (server guarantees a
-    /// default "Favorites" exists), picks via dialog, checkmark-swaps briefly.
+    /// Quiet add-to-collection: a Menu like the visibility switcher (an action
+    /// sheet presented over this sheet drops its button taps). Collections are
+    /// fetched on appear — that same GET also makes the server create the
+    /// default "Favorites" for new users.
     private var collectionButton: some View {
-        Button {
-            Haptics.tap()
-            Task {
-                collections = (try? await API.collections()) ?? []
-                if !collections.isEmpty { showCollections = true }
+        Menu {
+            ForEach(collections) { c in
+                Button(c.name) { add(to: c) }
             }
         } label: {
             Image(systemName: addedToCollection ? "checkmark.circle.fill" : "plus.circle")
@@ -655,12 +654,7 @@ struct PlayerView: View {
                 .foregroundStyle(addedToCollection ? Theme.accent : Theme.ink2)
         }
         .accessibilityLabel("Add to collection")
-        .confirmationDialog("Add to collection", isPresented: $showCollections,
-                            titleVisibility: .visible) {
-            ForEach(collections) { c in
-                Button(c.name) { add(to: c) }
-            }
-        }
+        .task { collections = (try? await API.collections()) ?? [] }
     }
 
     private func add(to c: API.Collection) {
