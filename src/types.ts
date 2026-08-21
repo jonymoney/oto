@@ -48,12 +48,14 @@ export interface AudioRecord {
   playedAt: string | null
   /** Listing visibility ('private' by default; links always work). */
   visibility: Visibility
+  /** Anonymous total play count (non-owner/share fetches). Aggregate only — no per-user rows. */
+  plays: number
 }
 
 /** Fields required to insert a new audio row (slug is assigned post-insert). */
 export type NewAudio = Omit<
   AudioRecord,
-  'id' | 'createdAt' | 'slug' | 'positionSec' | 'playedAt' | 'visibility'
+  'id' | 'createdAt' | 'slug' | 'positionSec' | 'playedAt' | 'visibility' | 'plays'
 >
 
 /** structuredContent payload for the player UI after text_to_speech. */

@@ -303,6 +303,8 @@ export function shareRouter(): Router {
     wrap(async (req, res) => {
       const rec = await readyAudio(req.params.id)
       if (!rec) return res.status(404).json({ error: 'Not found' })
+      // Anonymous aggregate play counter — fire-and-forget, never blocks the redirect.
+      void audioRepo.incrementPlays(rec.id).catch(() => {})
       res.setHeader('Cache-Control', 'no-store')
       res.redirect(302, await presignAudioUrl(rec.objectKey))
     }),
@@ -429,6 +431,8 @@ export function shortShareRouter(): Router {
     wrap(async (req, res) => {
       const rec = await readyBySlug(req.params.username, req.params.slug)
       if (!rec) return res.status(404).json({ error: 'Not found' })
+      // Anonymous aggregate play counter — fire-and-forget, never blocks the redirect.
+      void audioRepo.incrementPlays(rec.id).catch(() => {})
       res.setHeader('Cache-Control', 'no-store')
       res.redirect(302, await presignAudioUrl(rec.objectKey))
     }),

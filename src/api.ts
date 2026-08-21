@@ -17,6 +17,7 @@ import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
 import { createCheckoutSession, createPortalSession } from './billing.js'
 import { previewsRouter } from './previews.js'
+import { recommendationsFor } from './recs.js'
 import { usernameFor, ensureSlug, shareUrlFor, RESERVED_USERNAMES } from './share.js'
 import type { AudioRecord, Visibility } from './types.js'
 
@@ -130,6 +131,8 @@ export function apiRouter(): Router {
       const rec = await byIdForViewer(userId, req.params.id)
       if (!rec) return res.status(404).json({ error: 'Not found' })
       if (rec.status !== 'ready') return res.status(409).json({ error: `Audio is ${rec.status}` })
+      // Anonymous aggregate play counter — fire-and-forget, never blocks the presign.
+      if (rec.userId !== userId) void audioRepo.incrementPlays(rec.id).catch(() => {})
       res.json({ audioUrl: await presignAudioUrl(rec.objectKey), expiresIn: config.AUDIO_URL_TTL_SECONDS })
     }),
   )
@@ -458,11 +461,51 @@ export function apiRouter(): Router {
     }),
   )
 
+  // Explore v2: follows shelf + recommendations + tags + recent. `items` stays
+  // as an alias of `recent` so the shipped client keeps working.
   router.get(
     '/explore',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const recs = await audioRepo.listPublicRecent(userId, 30, 0)
+      const [recent, follows, forYouAll, tags] = await Promise.all([
+        audioRepo.listPublicRecent(userId, 30, 0),
+        audioRepo.listFolloweesRecent(userId, 20),
+        recommendationsFor(userId),
+        audioRepo.topPublicTags(),
+      ])
+      // forYou hides what the follows shelf above already shows; recent stays
+      // unfiltered. Hidden entirely when too thin or indistinguishable from recent.
+      const followIds = new Set(follows.map((r) => r.id))
+      let forYou = forYouAll.filter((r) => !followIds.has(r.id)).slice(0, 10)
+      const top5 = (rs: Array<{ id: string }>) => rs.slice(0, 5).map((r) => r.id).join(',')
+      if (forYou.length < 3 || top5(forYou) === top5(recent)) forYou = []
+      // One ensureSlug per unique audio, sequential (slug collisions are per-user;
+      // sequential is the safe rule — see ensureSlug's check-then-set fallback).
+      const slugs = new Map<string, string>()
+      for (const rec of [...follows, ...forYou, ...recent]) {
+        if (!slugs.has(rec.id)) slugs.set(rec.id, await ensureSlug(rec))
+      }
+      const entry = (rec: AudioRecord & { ownerUsername: string }) => ({
+        ...listItem(rec),
+        owner: rec.ownerUsername,
+        shareUrl: shareUrlFor(rec.ownerUsername, slugs.get(rec.id)!),
+      })
+      const recentOut = recent.map(entry)
+      res.json({
+        follows: follows.map(entry),
+        forYou: forYou.map(entry),
+        tags,
+        recent: recentOut,
+        items: recentOut,
+      })
+    }),
+  )
+
+  // Public audios carrying a tag (exact match, lowercased). Unknown tag = empty list.
+  router.get(
+    '/tags/:tag/audios',
+    wrap(async (req, res) => {
+      const recs = await audioRepo.listByTag(req.params.tag, 50)
       const items = []
       for (const rec of recs) {
         items.push({

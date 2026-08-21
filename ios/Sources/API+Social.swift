@@ -58,8 +58,41 @@ extension API {
         return try JSONDecoder().decode(AudioItems.self, from: data).items
     }
 
-    static func explore() async throws -> [AudioItem] {
+    struct TagCount: Decodable, Hashable {
+        let tag: String
+        let count: Int
+    }
+
+    struct ExplorePayload: Decodable {
+        let follows: [AudioItem]
+        let forYou: [AudioItem]
+        let tags: [TagCount]
+        let recent: [AudioItem]
+
+        private enum CodingKeys: String, CodingKey { case follows, forYou, tags, recent, items }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            follows = try c.decodeIfPresent([AudioItem].self, forKey: .follows) ?? []
+            forYou = try c.decodeIfPresent([AudioItem].self, forKey: .forYou) ?? []
+            tags = try c.decodeIfPresent([TagCount].self, forKey: .tags) ?? []
+            // Server sends both `recent` and its alias `items`; prefer `recent`.
+            recent = try c.decodeIfPresent([AudioItem].self, forKey: .recent)
+                ?? c.decodeIfPresent([AudioItem].self, forKey: .items) ?? []
+        }
+    }
+
+    static func explore() async throws -> ExplorePayload {
         let (data, _) = try await send(request("api/explore"))
+        return try JSONDecoder().decode(ExplorePayload.self, from: data)
+    }
+
+    static func tagAudios(tag: String) async throws -> [AudioItem] {
+        // Path segment: also encode "/" so a slash in a tag can't split the path.
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        let encoded = tag.addingPercentEncoding(withAllowedCharacters: allowed) ?? tag
+        let (data, _) = try await send(request("api/tags/\(encoded)/audios"))
         return try JSONDecoder().decode(AudioItems.self, from: data).items
     }
 

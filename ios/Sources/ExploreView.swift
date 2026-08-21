@@ -52,7 +52,7 @@ struct SocialAudioRow: View {
 @MainActor
 @Observable
 final class ExploreModel {
-    var items: [AudioItem] = []
+    var payload: API.ExplorePayload?
     var followedUsers: [API.UserSummary] = []
     var followedNames: Set<String> = []
     var savedIds: Set<String> = []
@@ -64,13 +64,13 @@ final class ExploreModel {
         loading = true
         failed = false
         do {
-            items = try await API.explore()
+            payload = try await API.explore()
             followedUsers = try await API.following()
             followedNames = Set(followedUsers.map(\.username))
         } catch APIError.unauthorized {
             auth.sessionExpired()
         } catch {
-            failed = items.isEmpty
+            failed = payload == nil
         }
         loading = false
     }
@@ -136,6 +136,9 @@ struct ExploreView: View {
                 .navigationDestination(for: String.self) { username in
                     UserProfileView(username: username, explore: model)
                 }
+                .navigationDestination(for: TagRoute.self) { route in
+                    TagFeedView(tag: route.tag, explore: model)
+                }
                 .refreshable { await model.load(auth: auth) }
                 .task { await model.load(auth: auth) }
                 .task(id: query) {
@@ -151,9 +154,9 @@ struct ExploreView: View {
     @ViewBuilder private var content: some View {
         if !query.trimmingCharacters(in: .whitespaces).isEmpty {
             searchList
-        } else if model.loading && model.items.isEmpty && model.followedUsers.isEmpty {
+        } else if model.loading && model.payload == nil && model.followedUsers.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if model.failed && model.items.isEmpty {
+        } else if model.failed && model.payload == nil {
             ContentUnavailableView {
                 Label("Couldn't load", systemImage: "wifi.slash")
             } description: {
@@ -219,13 +222,26 @@ struct ExploreView: View {
                 }
                 .listRowBackground(Theme.surface)
             }
+            let follows = model.payload?.follows ?? []
+            if !follows.isEmpty {
+                railSection("New from people you follow", items: follows)
+            }
+            let forYou = model.payload?.forYou ?? []
+            if !forYou.isEmpty {
+                railSection("For you", items: forYou)
+            }
+            let tags = model.payload?.tags ?? []
+            if !tags.isEmpty {
+                topicsSection(tags)
+            }
+            let recent = model.payload?.recent ?? []
             Section {
-                if model.items.isEmpty {
+                if recent.isEmpty {
                     Text("Nothing here yet — follow people to see more.")
                         .font(.subheadline).foregroundStyle(Theme.ink2)
                         .listRowBackground(Theme.surface)
                 } else {
-                    ForEach(model.items) { item in
+                    ForEach(recent) { item in
                         SocialAudioRow(item: item, saved: model.savedIds.contains(item.id)) {
                             model.save(item)
                         }
@@ -236,6 +252,155 @@ struct ExploreView: View {
             }
         }
         .scrollContentBackground(.hidden)
+    }
+
+    private func railSection(_ title: String, items: [AudioItem]) -> some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(items) { item in
+                        ExploreCard(item: item, saved: model.savedIds.contains(item.id)) {
+                            model.save(item)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text(title).foregroundStyle(Theme.ink2)
+        }
+        .listRowBackground(Theme.surface)
+    }
+
+    private func topicsSection(_ tags: [API.TagCount]) -> some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(tags, id: \.self) { t in
+                        NavigationLink(value: TagRoute(tag: t.tag)) {
+                            HStack(spacing: 5) {
+                                Text("#\(t.tag)")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Theme.ink)
+                                Text("\(t.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.ink3)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Theme.bg))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text("Topics").foregroundStyle(Theme.ink2)
+        }
+        .listRowBackground(Theme.surface)
+    }
+}
+
+/// Distinguishes tag pushes from username pushes (plain String = username).
+struct TagRoute: Hashable {
+    let tag: String
+}
+
+/// Horizontal-rail card: cover, 2-line title, @owner. Tap plays; long-press saves.
+private struct ExploreCard: View {
+    @Environment(PlayerModel.self) private var player
+    let item: AudioItem
+    let saved: Bool
+    let onSave: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            player.requestedItem = item
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CoverThumb(item: item, size: 120)
+                Text(item.title)
+                    .font(.footnote.weight(.medium))
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(Theme.ink)
+                if let o = item.owner {
+                    Text("@\(o)").font(.caption).foregroundStyle(Theme.ink2)
+                }
+            }
+            .frame(width: 140, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !saved {
+                Button("Save to Library", systemImage: "plus.circle", action: onSave)
+            }
+        }
+    }
+}
+
+/// Pushed feed for a single #tag.
+struct TagFeedView: View {
+    @Environment(AuthManager.self) private var auth
+    let tag: String
+    /// Shared with ExploreView so save state stays consistent across screens.
+    let explore: ExploreModel
+
+    @State private var items: [AudioItem] = []
+    @State private var loading = true
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if loading && items.isEmpty {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if failed && items.isEmpty {
+                ContentUnavailableView {
+                    Label("Couldn't load", systemImage: "wifi.slash")
+                } description: {
+                    Text("Check your connection and try again.")
+                } actions: {
+                    Button("Retry") { Task { await load() } }
+                        .buttonStyle(.borderedProminent)
+                }
+            } else {
+                List {
+                    if items.isEmpty {
+                        Text("Nothing here yet")
+                            .font(.subheadline).foregroundStyle(Theme.ink2)
+                            .frame(maxWidth: .infinity)
+                            .listRowBackground(Theme.surface)
+                    } else {
+                        ForEach(items) { item in
+                            SocialAudioRow(item: item, saved: explore.savedIds.contains(item.id)) {
+                                explore.save(item)
+                            }
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .refreshable { await load() }
+            }
+        }
+        .background(Theme.bg)
+        .navigationTitle("#\(tag)")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        failed = false
+        do {
+            items = try await API.tagAudios(tag: tag)
+        } catch APIError.unauthorized {
+            auth.sessionExpired()
+        } catch {
+            failed = items.isEmpty
+        }
+        loading = false
     }
 }
 

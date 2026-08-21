@@ -29,6 +29,7 @@ interface AudioRow {
   position_sec: number | null
   played_at: Date | string | null
   visibility: Visibility
+  plays: number
 }
 
 function mapRow(row: AudioRow): AudioRecord {
@@ -67,6 +68,7 @@ function mapRow(row: AudioRow): AudioRecord {
           ? row.played_at.toISOString()
           : new Date(row.played_at).toISOString(),
     visibility: row.visibility,
+    plays: row.plays,
   }
 }
 
@@ -142,7 +144,8 @@ export async function initDb(): Promise<void> {
       add column if not exists position_sec double precision,
       add column if not exists played_at timestamptz,
       add column if not exists visibility text not null default 'private',
-      add column if not exists client_name text
+      add column if not exists client_name text,
+      add column if not exists plays integer not null default 0
   `)
   // Social graph + saves + collections (user ids match audios.user_id: uuid).
   await pool.query(`
@@ -264,7 +267,7 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, client_name, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at, visibility'
+  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, client_name, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at, visibility, plays'
 
 /** COLUMNS qualified with a table alias, for joined queries. */
 const qcols = (t: string) =>
@@ -487,6 +490,73 @@ export const audioRepo = {
         order by a.created_at desc, a.id desc
         limit $2 offset $3`,
       [excludeUserId, Math.min(Math.max(Math.floor(limit), 1), 200), Math.max(offset, 0)],
+    )
+    return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
+  },
+
+  /** Fire-and-forget anonymous play counter — aggregate integer only, no per-user rows. */
+  async incrementPlays(id: string): Promise<void> {
+    await pool.query('update audios set plays = plays + 1 where id = $1', [id])
+  },
+
+  /**
+   * Explore "follows" shelf: newest ready audios by the caller's followees,
+   * restricted per relationship (public + followers always; friends only when
+   * mutual — the back-follow left join computes mutuality in one query).
+   */
+  async listFolloweesRecent(
+    userId: string,
+    limit = 20,
+  ): Promise<Array<AudioRecord & { ownerUsername: string }>> {
+    const { rows } = await pool.query<AudioRow & { owner_username: string }>(
+      `select ${qcols('a')}, u.username as owner_username
+         from follows f
+         join audios a on a.user_id = f.followee_id
+         join users u on u.id = f.followee_id
+         left join follows fb
+           on fb.follower_id = f.followee_id and fb.followee_id = f.follower_id
+        where f.follower_id = $1
+          and a.status = 'ready'
+          and u.username is not null
+          and (a.visibility in ('public', 'followers')
+               or (a.visibility = 'friends' and fb.follower_id is not null))
+        order by a.created_at desc, a.id desc
+        limit $2`,
+      [userId, Math.min(Math.max(Math.floor(limit), 1), 200)],
+    )
+    return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
+  },
+
+  /** Top public tags (lowercased), only tags carried by at least `min` audios. */
+  async topPublicTags(limit = 10, min = 3): Promise<Array<{ tag: string; count: number }>> {
+    const { rows } = await pool.query<{ tag: string; count: number }>(
+      `select lower(t) as tag, count(distinct a.id)::int as count
+         from audios a
+         join users u on u.id = a.user_id
+        cross join lateral unnest(a.tags) as t
+        where a.visibility = 'public' and a.status = 'ready' and u.username is not null
+        group by lower(t)
+       having count(distinct a.id) >= $2
+        order by count(distinct a.id) desc, lower(t)
+        limit $1`,
+      [limit, min],
+    )
+    return rows
+  },
+
+  /** Public ready audios carrying a tag (exact match, lowercase both sides), newest first. */
+  async listByTag(
+    tag: string,
+    limit = 50,
+  ): Promise<Array<AudioRecord & { ownerUsername: string }>> {
+    const { rows } = await pool.query<AudioRow & { owner_username: string }>(
+      `select ${qcols('a')}, u.username as owner_username
+         from audios a join users u on u.id = a.user_id
+        where a.visibility = 'public' and a.status = 'ready' and u.username is not null
+          and exists (select 1 from unnest(a.tags) t where lower(t) = $1)
+        order by a.created_at desc, a.id desc
+        limit $2`,
+      [tag.toLowerCase(), Math.min(Math.max(Math.floor(limit), 1), 200)],
     )
     return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
   },
@@ -807,6 +877,15 @@ export const followRepo = {
     return rows
   },
 
+  /** Ids of everyone this user follows (recommendation profile input). */
+  async followeeIds(userId: string): Promise<string[]> {
+    const { rows } = await pool.query<{ followee_id: string }>(
+      'select followee_id from follows where follower_id = $1',
+      [userId],
+    )
+    return rows.map((r) => r.followee_id)
+  },
+
   async counts(userId: string): Promise<{ followers: number; following: number }> {
     const { rows } = await pool.query<{ followers: number; following: number }>(
       `select (select count(*) from follows where followee_id = $1)::int as followers,
@@ -832,6 +911,28 @@ export const savedRepo = {
       userId,
       audioId,
     ])
+  },
+
+  /** The audios this user saved, newest save first (recommendation profile input). */
+  async listSaved(userId: string, limit = 200): Promise<AudioRecord[]> {
+    const { rows } = await pool.query<AudioRow>(
+      `select ${qcols('a')} from saved_audios s join audios a on a.id = s.audio_id
+        where s.user_id = $1
+        order by s.created_at desc
+        limit $2`,
+      [userId, limit],
+    )
+    return rows.map(mapRow)
+  },
+
+  /** Save totals for a set of audios in one grouped query: audio_id -> count. */
+  async saveCounts(audioIds: string[]): Promise<Map<string, number>> {
+    if (audioIds.length === 0) return new Map()
+    const { rows } = await pool.query<{ audio_id: string; n: number }>(
+      'select audio_id, count(*)::int as n from saved_audios where audio_id = any($1) group by audio_id',
+      [audioIds],
+    )
+    return new Map(rows.map((r) => [r.audio_id, r.n]))
   },
 
   async isSaved(userId: string, audioId: string): Promise<boolean> {
