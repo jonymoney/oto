@@ -373,7 +373,7 @@ struct SettingsView: View {
 
     private func disconnect(_ conn: API.Connection) async {
         do {
-            try await API.disconnect(clientId: conn.clientId)
+            try await API.disconnect(conn)
             model.connections?.removeAll { $0.clientId == conn.clientId }
             Haptics.success()
         } catch {

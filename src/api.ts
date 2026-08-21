@@ -627,11 +627,25 @@ export function apiRouter(): Router {
     '/connections',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const items = (await connectionRepo.list(userId)).map((c) => ({
-        ...c,
-        name: connectionName(c.name),
-      }))
-      res.json({ items })
+      // Clients like Claude register a fresh OAuth client per connection —
+      // group by display name so the user sees one row per AI, not one per
+      // registration. Disconnect revokes every clientId in the group.
+      const groups = new Map<
+        string,
+        { clientId: string; clientIds: string[]; name: string; firstConnectedAt: string; lastUsedAt: string | null }
+      >()
+      for (const c of await connectionRepo.list(userId)) {
+        const name = connectionName(c.name)
+        const g = groups.get(name)
+        if (!g) {
+          groups.set(name, { ...c, name, clientIds: [c.clientId] })
+        } else {
+          g.clientIds.push(c.clientId)
+          if (c.firstConnectedAt < g.firstConnectedAt) g.firstConnectedAt = c.firstConnectedAt
+          if (c.lastUsedAt && (!g.lastUsedAt || c.lastUsedAt > g.lastUsedAt)) g.lastUsedAt = c.lastUsedAt
+        }
+      }
+      res.json({ items: [...groups.values()] })
     }),
   )
 
