@@ -13,6 +13,19 @@ enum AvatarCache {
     /// re-download per user per launch, not one per row appearance.
     private static var refreshed: Set<String> = []
 
+    /// The signed-in user's username. Their avatar is one identity reachable
+    /// under two keys ("me" from contexts without a username, e.g. the player's
+    /// own-audio row, and the real username from Settings/Explore) — both
+    /// normalize to the single "me" entry. Persisted so the alias holds from
+    /// launch, before Settings has loaded the profile.
+    static var ownUsername: String? = UserDefaults.standard.string(forKey: "avatarOwnUsername") {
+        didSet { UserDefaults.standard.set(ownUsername, forKey: "avatarOwnUsername") }
+    }
+
+    private static func normalize(_ key: String) -> String {
+        key == ownUsername ? "me" : key
+    }
+
     private static var dir: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("avatars", isDirectory: true)
@@ -25,7 +38,8 @@ enum AvatarCache {
     }
 
     /// Memory first, then disk (populating memory on a disk hit).
-    static func image(for key: String) -> UIImage? {
+    static func image(for rawKey: String) -> UIImage? {
+        let key = normalize(rawKey)
         if let img = memory.object(forKey: key as NSString) { return img }
         guard let img = UIImage(contentsOfFile: fileURL(key).path) else { return nil }
         memory.setObject(img, forKey: key as NSString)
@@ -41,7 +55,8 @@ enum AvatarCache {
 
     /// Store raw downloaded bytes; returns the decoded image (nil if undecodable).
     @discardableResult
-    static func store(data: Data, for key: String) -> UIImage? {
+    static func store(data: Data, for rawKey: String) -> UIImage? {
+        let key = normalize(rawKey)
         guard let img = UIImage(data: data) else { return nil }
         memory.setObject(img, forKey: key as NSString)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -49,9 +64,10 @@ enum AvatarCache {
         return img
     }
 
-    /// True once per key per session (check-and-mark).
+    /// True once per key per session (check-and-mark). Normalized, so the own
+    /// avatar revalidates once whether asked for as "me" or by username.
     @MainActor static func needsRefresh(_ key: String) -> Bool {
-        refreshed.insert(key).inserted
+        refreshed.insert(normalize(key)).inserted
     }
 }
 

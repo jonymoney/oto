@@ -5,7 +5,11 @@ import AVFoundation
 @Observable
 final class SettingsModel {
     var email: String?
-    var me: API.Me?
+    var me: API.Me? {
+        // Keep AvatarCache's own-username alias current (profile load and
+        // username edits both land here); nil (load failure) keeps the old value.
+        didSet { if let u = me?.username { AvatarCache.ownUsername = u } }
+    }
     var usage: API.Usage?
     var prefs: API.Prefs?
     var errorMessage: String?
