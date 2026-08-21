@@ -408,7 +408,7 @@ export function buildServer(): McpServer {
 
         const exempt = quotaSec === 0 || (await isQuotaExempt(userId, email))
         if (quotaSec > 0 && !exempt) {
-          const usedSec = await usageRepo.generatedSec(userId)
+          const usedSec = await usageRepo.generatedSec(userId, email)
           if (usedSec >= quotaSec) {
             return errorResult(
               new Error(
@@ -521,7 +521,7 @@ export function buildServer(): McpServer {
         await usageRepo.addGeneratedSec(userId, generatedSec, email)
         let quotaNote = ''
         if (quotaSec > 0 && !exempt) {
-          const usedSec = await usageRepo.generatedSec(userId)
+          const usedSec = await usageRepo.generatedSec(userId, email)
           quotaNote = ` Generation quota used: ${fmtMinutes(usedSec)} of ${config.QUOTA_MINUTES} min.`
         }
 

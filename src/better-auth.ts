@@ -56,8 +56,9 @@ export const auth = betterAuth({
       enabled: true,
       beforeDelete: async (user) => {
         // Rows first (FKs reference users), then bucket objects best-effort —
-        // rows are gone, orphaned objects are harmless.
-        const objectKeys = await deleteUserData(user.id)
+        // rows are gone, orphaned objects are harmless. The email keys the
+        // usage tombstone so re-signing up doesn't reset the quota.
+        const objectKeys = await deleteUserData(user.id, user.email)
         for (const key of [...objectKeys, `avatars/${user.id}.jpg`]) {
           try {
             await deleteAudioObject(key)
@@ -66,6 +67,23 @@ export const auth = betterAuth({
           }
         }
       },
+    },
+  },
+  // Explicit (Better Auth's default limiter only arms when NODE_ENV=production,
+  // which the start script doesn't guarantee). Keyed per client IP via the
+  // x-forwarded-for config above. Tight rules on the endpoints that send email:
+  // each magic-link/OTP send costs Resend money and can email-bomb strangers.
+  // ponytail: in-memory counters — per-instance, reset on deploy. Move to
+  // storage: 'database' if this ever runs more than one Railway replica.
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+    customRules: {
+      '/sign-in/magic-link': { window: 60, max: 3 },
+      '/email-otp/send-verification-otp': { window: 60, max: 3 },
+      '/sign-in/email-otp': { window: 60, max: 5 },
+      '/magic-link/verify': { window: 60, max: 10 },
     },
   },
   account: { accountLinking: { enabled: true } },

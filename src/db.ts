@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Pool } from 'pg'
 import { config } from './config.js'
 import type { AudioRecord, AudioStatus, NewAudio, Visibility } from './types.js'
@@ -752,14 +753,54 @@ export const userRepo = {
   },
 }
 
+/**
+ * Canonical email for cross-account quota identity: lowercase, +tag stripped;
+ * gmail-family addresses also ignore dots. Deleting an account and re-signing
+ * up with a trivial variant of the same address must land on the same tombstone.
+ */
+export function normalizeEmail(email: string): string {
+  const [local = '', domain = ''] = email.trim().toLowerCase().split('@')
+  let l = local.split('+')[0]
+  if (domain === 'gmail.com' || domain === 'googlemail.com') l = l.replaceAll('.', '')
+  return `${l}@${domain}`
+}
+
+/**
+ * Deterministic uuid keying a deleted account's usage tombstone row in
+ * usage_counters — account deletion folds generated_sec into it, and a
+ * re-signup with the same (normalized) email inherits it, so deleting the
+ * account never resets the free-tier quota.
+ */
+export function usageTombstoneId(email: string): string {
+  const h = createHash('sha256').update(`usage-tombstone:${normalizeEmail(email)}`).digest('hex')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+}
+
 export const usageRepo = {
-  /** Cumulative seconds of audio this user has had generated (never decreases). */
-  async generatedSec(userId: string): Promise<number> {
-    const { rows } = await pool.query<{ generated_sec: string }>(
-      'select generated_sec::text from usage_counters where user_id = $1',
-      [userId],
+  /**
+   * Cumulative seconds of audio this user has had generated (never decreases),
+   * counting: their own counter, the tombstone left by a previously deleted
+   * account on the same normalized email (max of the two — addGeneratedSec
+   * seeds the own row from the tombstone, so own >= tombstone once seeded),
+   * and in-flight 'processing' rows at their length estimate — so parallel
+   * requests can't all pass the quota check before any of them finishes.
+   * Rows stuck 'processing' past the 15-min janitor window are presumed dead
+   * (see resolveStale) and excluded, so a crashed job can't block the quota.
+   */
+  async generatedSec(userId: string, email?: string): Promise<number> {
+    const ids = email ? [userId, usageTombstoneId(email)] : [userId]
+    const { rows } = await pool.query<{ total: string }>(
+      `select (
+          (select coalesce(max(generated_sec), 0) from usage_counters where user_id = any($1::uuid[]))
+          -- 15 chars/sec: keep in sync with estimateSec in tts.ts.
+        + (select coalesce(sum(char_count), 0) / 15.0 from audios
+            where user_id = $2 and status = 'processing'
+              and updated_at >= now() - interval '15 minutes')
+       )::text as total`,
+      [ids, userId],
     )
-    return rows[0] ? Number(rows[0].generated_sec) : 0
+    const n = Number.parseFloat(rows[0]?.total ?? '0')
+    return Number.isFinite(n) ? n : 0
   },
 
   /** True when this user has the per-user unlimited-generation flag. */
@@ -772,14 +813,17 @@ export const usageRepo = {
   },
 
   async addGeneratedSec(userId: string, seconds: number, email?: string): Promise<void> {
+    // First write for a user seeds their counter from the tombstone a deleted
+    // account left on the same normalized email — delete/re-signup cycles keep
+    // accumulating instead of restarting at zero.
     await pool.query(
       `insert into usage_counters (user_id, email, generated_sec, updated_at)
-       values ($1, $2, $3, now())
+       values ($1, $2, $3 + coalesce((select generated_sec from usage_counters where user_id = $4::uuid), 0), now())
        on conflict (user_id)
-       do update set generated_sec = usage_counters.generated_sec + excluded.generated_sec,
+       do update set generated_sec = usage_counters.generated_sec + $3,
                      email = coalesce(excluded.email, usage_counters.email),
                      updated_at = now()`,
-      [userId, email ?? null, seconds],
+      [userId, email ?? null, seconds, email ? usageTombstoneId(email) : null],
     )
   },
 
@@ -1096,10 +1140,13 @@ export const connectionRepo = {
 /**
  * Deletes ALL app rows for a user in one transaction and returns the deleted
  * audios' object_key list (caller removes the bucket objects). CONTRACT with
- * better-auth.ts account deletion — do not rename or change the signature.
+ * better-auth.ts account deletion — do not rename this or drop parameters.
  * Better Auth's own users/sessions/accounts rows are deleted by Better Auth.
+ *
+ * The usage counter is folded into an email-keyed tombstone row first, so
+ * deleting the account and re-signing up never resets the free-tier quota.
  */
-export async function deleteUserData(userId: string): Promise<string[]> {
+export async function deleteUserData(userId: string, email?: string): Promise<string[]> {
   const client = await pool.connect()
   try {
     await client.query('begin')
@@ -1108,6 +1155,20 @@ export async function deleteUserData(userId: string): Promise<string[]> {
       [userId],
     )
     await client.query('delete from user_prefs where user_id = $1', [userId])
+    if (email) {
+      // greatest, not sum: the user's counter already includes any tombstone
+      // seed it inherited at signup (see addGeneratedSec), so summing would
+      // double-count across delete/re-signup cycles. Only generated_sec
+      // carries over — unlimited/Stripe state dies with the account.
+      await client.query(
+        `insert into usage_counters (user_id, email, generated_sec, updated_at)
+         select $2::uuid, $3, generated_sec, now() from usage_counters where user_id = $1
+         on conflict (user_id)
+         do update set generated_sec = greatest(usage_counters.generated_sec, excluded.generated_sec),
+                       updated_at = now()`,
+        [userId, usageTombstoneId(email), normalizeEmail(email)],
+      )
+    }
     await client.query('delete from usage_counters where user_id = $1', [userId])
     await client.query('delete from follows where follower_id = $1 or followee_id = $1', [userId])
     await client.query('delete from saved_audios where user_id = $1', [userId])

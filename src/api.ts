@@ -185,9 +185,9 @@ export function apiRouter(): Router {
   router.get(
     '/usage',
     wrap(async (req, res) => {
-      const userId = userIdFrom({ authInfo: req.auth })
+      const { userId, email } = authUserFrom({ authInfo: req.auth })
       const [generatedSec, unlimited] = await Promise.all([
-        usageRepo.generatedSec(userId),
+        usageRepo.generatedSec(userId, email),
         usageRepo.isUnlimited(userId),
       ])
       const quotaSec = config.QUOTA_MINUTES * 60
