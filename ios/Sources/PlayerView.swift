@@ -378,8 +378,10 @@ struct PlayerView: View {
                         .foregroundStyle(Theme.ink)
                     // Identity row: author is the anchor; visibility rides along.
                     HStack(spacing: 8) {
-                        InitialsCircle(text: owner ?? "me", size: 22)
-                            .frame(width: 22, height: 22)
+                        // The audio payload carries no avatar URL, so this renders from
+                        // the on-device cache (populated by Settings/Explore); add
+                        // ownerAvatarUrl to the API if cold-start matters.
+                        AvatarImageView(username: owner, avatarUrl: nil, size: 22)
                         Text(authorLabel)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.ink)
@@ -595,8 +597,8 @@ struct PlayerView: View {
     // cross-tab navigation; add when the profile route is reachable from here.
     private func authorCard(_ username: String) -> some View {
         HStack(spacing: 10) {
-            InitialsCircle(text: username, size: 36)
-                .frame(width: 36, height: 36)
+            // Renders from the on-device avatar cache — the payload has no avatar URL.
+            AvatarImageView(username: username, avatarUrl: nil, size: 36)
             Text("@\(username)")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Theme.ink)

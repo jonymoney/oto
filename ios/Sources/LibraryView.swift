@@ -47,6 +47,7 @@ struct LibraryView: View {
     @State private var model = LibraryModel()
     @State private var newCollectionFor: AudioItem?
     @State private var newCollectionName = ""
+    @State private var pendingRemoveDownload: AudioItem?
 
     /// Poll while something is still generating and the app is frontmost.
     private var isPolling: Bool {
@@ -129,6 +130,26 @@ struct LibraryView: View {
                     }
                 }
                 Button("Cancel", role: .cancel) { newCollectionName = "" }
+            }
+            // Shared confirm for the context-menu and swipe remove-download
+            // actions (DownloadAccessory carries its own).
+            .confirmationDialog(
+                "Remove download?",
+                isPresented: Binding(
+                    get: { pendingRemoveDownload != nil },
+                    set: { if !$0 { pendingRemoveDownload = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Remove download", role: .destructive) {
+                    guard let item = pendingRemoveDownload else { return }
+                    pendingRemoveDownload = nil
+                    Haptics.warning()
+                    Downloads.shared.remove(item.id)
+                }
+                Button("Cancel", role: .cancel) { pendingRemoveDownload = nil }
+            } message: {
+                Text("The audio stays in your library and can be downloaded again.")
             }
         }
     }
@@ -284,8 +305,7 @@ struct LibraryView: View {
             }
             if Downloads.shared.isDownloaded(item.id) {
                 Button("Remove download", systemImage: "trash", role: .destructive) {
-                    Haptics.warning()
-                    Downloads.shared.remove(item.id)
+                    pendingRemoveDownload = item
                 }
             } else if item.status == "ready", !Downloads.shared.inProgress.contains(item.id) {
                 Button("Download", systemImage: "arrow.down.circle") {
@@ -305,8 +325,7 @@ struct LibraryView: View {
                 .tint(Theme.ink3)
             } else if Downloads.shared.isDownloaded(item.id) {
                 Button("Remove", role: .destructive) {
-                    Haptics.warning()
-                    Downloads.shared.remove(item.id)
+                    pendingRemoveDownload = item
                 }
             } else if item.status == "ready" {
                 Button("Download") {

@@ -221,11 +221,11 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(auth: auth) }
         .onDisappear { preview.stop() }
-        .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive) { Task { await auth.logout() } }
+        .alert("Sign out?", isPresented: $confirmingSignOut) {
+            Button("Sign Out", role: .destructive) { Task { await auth.logout() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("You'll need to sign in again to get back in.")
+            Text("Downloads stay on this device. Your audios stay in your account.")
         }
         .confirmationDialog("Remove all downloads?", isPresented: $confirmingRemoveDownloads, titleVisibility: .visible) {
             Button("Remove all", role: .destructive) { Downloads.shared.removeAll() }
