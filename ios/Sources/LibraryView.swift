@@ -53,22 +53,30 @@ struct LibraryView: View {
         scenePhase == .active && model.items.contains { $0.status == "processing" }
     }
 
+    // Unlimited reads as an exponent on the wordmark — oto∞, like n². The nav
+    // bar strips rich-text styling, so the styled mark is rendered as content
+    // (with the system title hidden) instead of via navigationTitle.
+    private var unlimited: Bool { model.usage?.unlimited == true }
+
+    private var wordmark: some View {
+        (Text("oto").font(.system(size: 34, weight: .bold))
+            + Text("∞")
+                .font(.system(size: 20, weight: .bold))
+                .baselineOffset(14)
+                .foregroundStyle(Theme.accent))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .accessibilityLabel("oto — unlimited generation")
+    }
+
     var body: some View {
         NavigationStack {
             content
                 .background(Theme.bg)
-                .navigationTitle("oto")
+                .navigationTitle(unlimited ? "" : "oto")
+                // Custom wordmark replaces the large title; collapse the empty bar.
+                .navigationBarTitleDisplayMode(unlimited ? .inline : .large)
             .toolbar {
-                // Unlimited plan shows as a discreet status mark up here instead
-                // of a full-width row; quota users keep the meter row below.
-                if model.usage?.unlimited == true {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Image(systemName: "infinity")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.accent)
-                            .accessibilityLabel("Unlimited generation")
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         CollectionsView()
@@ -133,6 +141,9 @@ struct LibraryView: View {
             ScrollView {
                 // Meter lives in the scroll content (not pinned above it) so the
                 // large nav title collapses against it correctly.
+                if unlimited {
+                    wordmark.padding(.horizontal, 16)
+                }
                 if let usage = model.usage, !usage.unlimited {
                     UsageMeter(usage: usage)
                 }
@@ -155,6 +166,14 @@ struct LibraryView: View {
             }
         } else {
             List {
+                if unlimited {
+                    Section {
+                        wordmark
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 4, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                }
                 // Regular (non-pinned) first row: previously a fixed header above
                 // the List, which overlapped the collapsing "oto" large title.
                 if let usage = model.usage, !usage.unlimited {
