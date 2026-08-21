@@ -60,7 +60,7 @@ struct CollectionsView: View {
                 newName = ""
                 guard (1...60).contains(name.count) else { return }
                 Task {
-                    _ = try? await API.createCollection(name: name)
+                    if (try? await API.createCollection(name: name)) != nil { Haptics.success() }
                     await load()
                 }
             }
@@ -72,6 +72,7 @@ struct CollectionsView: View {
             titleVisibility: .visible
         ) {
             Button("Delete collection", role: .destructive) {
+                Haptics.warning()
                 guard let c = pendingDelete else { return }
                 pendingDelete = nil
                 Task {
@@ -130,6 +131,7 @@ struct CollectionDetailView: View {
 
     private func row(for item: AudioItem) -> some View {
         Button {
+            Haptics.tap()
             player.requestedItem = item
         } label: {
             HStack(spacing: 12) {

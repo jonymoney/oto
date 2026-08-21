@@ -99,7 +99,7 @@ struct LibraryView: View {
                     guard let item, (1...60).contains(name.count) else { return }
                     Task {
                         if let c = try? await API.createCollection(name: name) {
-                            try? await API.addToCollection(id: c.id, audioId: item.id)
+                            if (try? await API.addToCollection(id: c.id, audioId: item.id)) != nil { Haptics.success() }
                             await model.load(auth: auth)
                         }
                     }
@@ -183,6 +183,7 @@ struct LibraryView: View {
 
     private func row(for item: AudioItem, inProgress: Bool) -> some View {
         Button {
+            Haptics.tap()
             player.requestedItem = item
         } label: {
             HStack(spacing: 12) {
@@ -248,11 +249,12 @@ struct LibraryView: View {
             }
             if Downloads.shared.isDownloaded(item.id) {
                 Button("Remove download", systemImage: "trash", role: .destructive) {
+                    Haptics.warning()
                     Downloads.shared.remove(item.id)
                 }
             } else if item.status == "ready", !Downloads.shared.inProgress.contains(item.id) {
                 Button("Download", systemImage: "arrow.down.circle") {
-                    Task { await Downloads.shared.download(item) }
+                    Task { await Downloads.shared.download(item); if Downloads.shared.isDownloaded(item.id) { Haptics.success() } }
                 }
             }
         }
@@ -268,11 +270,12 @@ struct LibraryView: View {
                 .tint(Theme.ink3)
             } else if Downloads.shared.isDownloaded(item.id) {
                 Button("Remove", role: .destructive) {
+                    Haptics.warning()
                     Downloads.shared.remove(item.id)
                 }
             } else if item.status == "ready" {
                 Button("Download") {
-                    Task { await Downloads.shared.download(item) }
+                    Task { await Downloads.shared.download(item); if Downloads.shared.isDownloaded(item.id) { Haptics.success() } }
                 }
                 .tint(Theme.accent)
             }
@@ -286,7 +289,7 @@ struct LibraryView: View {
                 Button {
                     guard v != current else { return }
                     Task {
-                        try? await API.setVisibility(audioId: item.id, v)
+                        if (try? await API.setVisibility(audioId: item.id, v)) != nil { Haptics.success() }
                         await model.load(auth: auth)
                     }
                 } label: {
@@ -305,7 +308,7 @@ struct LibraryView: View {
             ForEach(model.collections) { c in
                 Button(c.name) {
                     Task {
-                        try? await API.addToCollection(id: c.id, audioId: item.id)
+                        if (try? await API.addToCollection(id: c.id, audioId: item.id)) != nil { Haptics.success() }
                         await model.load(auth: auth)
                     }
                 }
@@ -400,12 +403,12 @@ struct DownloadAccessory: View {
             }
             .buttonStyle(.borderless)
             .confirmationDialog("Remove download?", isPresented: $confirmingRemove, titleVisibility: .visible) {
-                Button("Remove download", role: .destructive) { downloads.remove(item.id) }
+                Button("Remove download", role: .destructive) { Haptics.warning(); downloads.remove(item.id) }
                 Button("Cancel", role: .cancel) {}
             }
         } else {
             Button {
-                Task { await downloads.download(item) }
+                Task { await downloads.download(item); if downloads.isDownloaded(item.id) { Haptics.success() } }
             } label: {
                 Image(systemName: "arrow.down.circle").foregroundStyle(Theme.ink3)
             }

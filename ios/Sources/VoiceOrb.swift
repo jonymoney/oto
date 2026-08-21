@@ -70,7 +70,24 @@ struct VoiceOrbView: View {
         outline.closeSubpath()
 
         // Halo: the outline itself, heavily blurred — breathes with the shape.
+        // Soft-masked radially so the glow fades to nothing before the canvas
+        // bounds — otherwise the blur tail hard-clips at the square frame and
+        // reads as a faint box on flat backgrounds (visible at large sizes).
         var halo = ctx
+        halo.clipToLayer { mask in
+            mask.fill(
+                Path(CGRect(origin: .zero, size: size)),
+                with: .radialGradient(
+                    Gradient(stops: [
+                        .init(color: .white, location: 0.75),
+                        .init(color: .clear, location: 1),
+                    ]),
+                    center: CGPoint(x: cx, y: cy),
+                    startRadius: 0,
+                    endRadius: Double(min(size.width, size.height)) / 2
+                )
+            )
+        }
         halo.addFilter(.blur(radius: r * 0.22))
         halo.fill(outline, with: .color(colors[0].opacity(p.glow)))
 

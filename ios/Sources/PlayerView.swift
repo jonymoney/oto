@@ -370,14 +370,14 @@ struct PlayerView: View {
                     .disabled(!model.hasAudio)
 
                     HStack(spacing: 44) {
-                        Button { model.skip(-15) } label: {
+                        Button { Haptics.tap(); model.skip(-15) } label: {
                             Image(systemName: "gobackward.15").font(.title)
                         }
-                        Button { model.toggle() } label: {
+                        Button { Haptics.tap(); model.toggle() } label: {
                             Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill")
                                 .font(.system(size: 72))
                         }
-                        Button { model.skip(15) } label: {
+                        Button { Haptics.tap(); model.skip(15) } label: {
                             Image(systemName: "goforward.15").font(.title)
                         }
                     }
@@ -386,6 +386,7 @@ struct PlayerView: View {
 
                     // Tap cycles 1x → 1.25x → 1.5x → 2x → back to 1x.
                     Button {
+                        Haptics.selection()
                         let i = Self.speeds.firstIndex(of: model.speed) ?? 0
                         model.setSpeed(Self.speeds[(i + 1) % Self.speeds.count])
                     } label: {

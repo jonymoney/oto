@@ -120,9 +120,11 @@ struct UsernameEditView: View {
         defer { saving = false }
         do {
             let me = try await API.updateUsername(username)
+            Haptics.success()
             onSaved(me)
             dismiss()
         } catch {
+            Haptics.warning() // taken/reserved/invalid/network error surfacing
             if case let APIError.server(m) = error {
                 switch m {
                 case "taken":    saveError = "That username is taken."
@@ -210,6 +212,7 @@ struct AvatarPickerView: View {
         }
         do {
             onUploaded(try await API.uploadAvatar(jpeg: jpeg))
+            Haptics.success()
         } catch {
             failed = true
         }

@@ -34,6 +34,7 @@ struct PaywallView: View {
             Task {
                 if let u = try? await API.usage(), u.unlimited {
                     preview.stop()
+                    Haptics.success() // "You're unlimited" appearing
                     withAnimation { unlocked = true }
                     try? await Task.sleep(for: .seconds(1.5))
                     dismiss()
@@ -75,6 +76,7 @@ struct PaywallView: View {
 
                 VStack(spacing: 10) {
                     Button {
+                        Haptics.impact()
                         Task {
                             if let url = try? await API.checkout() { openURL(url) }
                             else { openURL(URL(string: "https://oto.audio/upgrade")!) }
@@ -120,6 +122,7 @@ struct PaywallView: View {
 
     private func orbCell(_ voice: API.Voice) -> some View {
         Button {
+            Haptics.tap()
             // Previews are free — same flow as the settings voice cards.
             Task { await preview.toggle(voice: voice.name, provider: voice.provider, language: language) }
         } label: {

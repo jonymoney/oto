@@ -45,6 +45,7 @@ struct SocialAudioRow: View {
 
     var body: some View {
         Button {
+            Haptics.tap()
             player.requestedItem = item
         } label: {
             HStack(spacing: 12) {
@@ -120,6 +121,7 @@ final class ExploreModel {
     /// Single source of truth for follow state (search rows, Following row,
     /// profile button all read followedNames). Optimistic; reverts on failure.
     func setFollow(_ user: API.UserSummary, following: Bool) {
+        following ? Haptics.success() : Haptics.tap() // only called from user taps
         apply(user, following: following)
         Task {
             do {
@@ -146,6 +148,7 @@ final class ExploreModel {
 
     /// Optimistic save; reverts on failure.
     func save(_ item: AudioItem) {
+        Haptics.success() // only called from user taps (context menu / swipe)
         savedIds.insert(item.id)
         Task {
             do { try await API.saveAudio(id: item.id) }

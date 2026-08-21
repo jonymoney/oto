@@ -47,7 +47,8 @@ struct OnboardingView: View {
         }
         .tint(Theme.accent)
         .task { await loadPrefs() }
-        .onChange(of: centeredVoice) { _, voice in
+        .onChange(of: centeredVoice) { old, voice in
+            if old != nil { Haptics.selection() }
             autoplayTask?.cancel()
             guard let voice, page == 0 else { return }
             // Debounce so we only play once the carousel settles.
@@ -116,6 +117,7 @@ struct OnboardingView: View {
             Spacer(minLength: 0)
 
             Button {
+                Haptics.success()
                 let voice = centeredVoice
                 autoplayTask?.cancel()
                 preview.stop()
@@ -156,6 +158,7 @@ struct OnboardingView: View {
     private func voiceSlide(_ voice: API.Voice) -> some View {
         VStack(spacing: 16) {
             Button {
+                Haptics.tap()
                 Task { await play(voice) }
             } label: {
                 slideOrb(voice)
@@ -223,6 +226,7 @@ struct OnboardingView: View {
             Spacer()
 
             Button {
+                Haptics.tap()
                 withAnimation(.spring(duration: 0.35)) { page = 2 }
             } label: {
                 Text("Next")
@@ -296,6 +300,7 @@ struct OnboardingView: View {
             Spacer(minLength: 16)
 
             Button {
+                Haptics.tap()
                 finish()
             } label: {
                 Text("Start listening")
@@ -351,6 +356,7 @@ struct OnboardingView: View {
     }
 
     private func copy(_ text: String) {
+        Haptics.tap()
         UIPasteboard.general.string = text
         withAnimation(.spring(duration: 0.25)) { copied = text }
         Task {

@@ -38,6 +38,7 @@ final class SettingsModel {
     func save(voice: String? = nil, language: String? = nil) async {
         do {
             prefs = try await API.updatePrefs(voice: voice, language: language)
+            if voice != nil { Haptics.success() }
         } catch {
             errorMessage = "Couldn't save that setting."
         }
@@ -56,6 +57,7 @@ struct SettingsView: View {
     @State private var confirmingDeleteFinal = false
     @State private var deleting = false
     @State private var deleteError: String?
+    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
 
     // Fish voices are gated behind unlimited (unless the server hides upgrade UI).
     private var fishLocked: Bool {
@@ -97,6 +99,11 @@ struct SettingsView: View {
                                     if locked {
                                         showingPaywall = true
                                         return
+                                    }
+                                    if prefs.voice != voice.name {
+                                        Haptics.selection()
+                                    } else {
+                                        Haptics.tap() // pure preview toggle on the selected orb
                                     }
                                     Task {
                                         if prefs.voice != voice.name { await model.save(voice: voice.name) }
@@ -172,6 +179,11 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.surface)
 
+            Section("App") {
+                Toggle("Haptics", isOn: $hapticsEnabled)
+            }
+            .listRowBackground(Theme.surface)
+
             Section("About") {
                 LabeledContent("Version", value: appVersion)
                 Link("Terms", destination: URL(string: "https://oto.audio/terms")!)
@@ -189,6 +201,7 @@ struct SettingsView: View {
 
             Section {
                 Button(role: .destructive) {
+                    Haptics.warning()
                     confirmingDelete = true
                 } label: {
                     if deleting {
@@ -253,6 +266,7 @@ struct SettingsView: View {
             get: { model.prefs?.language ?? "" },
             set: { l in
                 guard !l.isEmpty, l != model.prefs?.language else { return }
+                Haptics.selection()
                 Task { await model.save(language: l) }
             }
         )
@@ -340,6 +354,7 @@ private struct ConnectGuideView: View {
 
     private func copyRow(_ text: String) -> some View {
         Button {
+            Haptics.tap()
             UIPasteboard.general.string = text
             copied = text
             Task {
