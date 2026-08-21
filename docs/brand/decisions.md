@@ -57,3 +57,21 @@ chosen, no stated objection).
 - Rejected: W4 counter-dot (fills the aperture), M4 double-o (reads infinity),
   I4 音 icon (hidden layer isn't the front door; muddy under 16px).
 - Quiet layer: ma spacing/timing, A440→A880 chimes, 音 in three places only.
+
+## Phase 4 — application (2026-08-21)
+
+**Approved.** Archived page: `review-phase4.html`.
+- App surfaces (Library masthead, player orb, onboarding), cover system
+  (voice-duotone, kanji color-name signature), App Store style (I1 icon,
+  morning-radio copy, one-claim-per-panel screenshots).
+- **Tagline: T1 — "Anything, read aloud."** (T2 "Your words, on air" is the
+  inside voice; T3/T4 rejected: abstract / devtool-cold.)
+
+## Phase 5 — delivery (2026-08-21)
+
+Shipped: `tokens.json` (source of truth) + `scripts/gen-swift.mjs` →
+`ios/Sources/Theme.swift` (generated, API-compatible + voiceAnchor); outlined
+logo SVGs + 1024 PNG in `logo/`; `BRAND.md`; `guidelines/` (logo, color,
+typography, watermark, app-icon, assets); `scripts/make-logo.py` (regenerates
+assets; needs clash600.woff2 + zenkaku-medium.ttf beside it).
+Brand discovery CLOSED — later work is a new phase, not edits to closed ones.
