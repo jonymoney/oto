@@ -8,6 +8,7 @@ import {
   followRepo,
   savedRepo,
   collectionRepo,
+  connectionRepo,
   allowedVisibilities,
   VISIBILITIES,
 } from './db.js'
@@ -524,6 +525,8 @@ export function apiRouter(): Router {
     '/collections',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
+      // Every user gets a "Favorites" default collection, created on first list.
+      await collectionRepo.ensureDefault(userId)
       res.json({ items: await collectionRepo.list(userId) })
     }),
   )
@@ -538,7 +541,7 @@ export function apiRouter(): Router {
         return res.status(400).json({ error: 'name must be 1–60 characters' })
       }
       const created = await collectionRepo.create(userId, trimmed)
-      res.json({ ...created, count: 0 })
+      res.json({ ...created, isDefault: false, count: 0 })
     }),
   )
 
@@ -546,9 +549,11 @@ export function apiRouter(): Router {
     '/collections/:id',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      if (!(await collectionRepo.delete(userId, req.params.id))) {
-        return res.status(404).json({ error: 'Not found' })
+      const outcome = await collectionRepo.delete(userId, req.params.id)
+      if (outcome === 'default') {
+        return res.status(400).json({ error: 'The default collection cannot be deleted' })
       }
+      if (outcome === 'missing') return res.status(404).json({ error: 'Not found' })
       res.status(204).end()
     }),
   )
@@ -600,7 +605,48 @@ export function apiRouter(): Router {
           owner: rec.userId === userId ? null : await nameOf(rec.userId),
         })
       }
-      res.json({ id: col.id, name: col.name, items })
+      res.json({ id: col.id, name: col.name, isDefault: col.isDefault, items })
+    }),
+  )
+
+  // ── AI connections ────────────────────────────────────────────────────────
+
+  // Mirrors clientDisplayName in mcp.ts (private there): dynamic client
+  // registration names are often raw slugs — map the known ones to friendly names.
+  const connectionName = (raw: string): string => {
+    const l = raw.toLowerCase()
+    if (l.includes('claude-code') || l.includes('claude code')) return 'Claude Code'
+    if (l.includes('claude')) return 'Claude'
+    if (l.includes('chatgpt') || l.includes('openai')) return 'ChatGPT'
+    if (l.includes('cursor')) return 'Cursor'
+    return raw.slice(0, 40)
+  }
+
+  // AI clients (Claude, ChatGPT, Cursor…) this user connected via OAuth.
+  router.get(
+    '/connections',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const items = (await connectionRepo.list(userId)).map((c) => ({
+        ...c,
+        name: connectionName(c.name),
+      }))
+      res.json({ items })
+    }),
+  )
+
+  // Revoke a connected client: its refresh tokens die immediately (they live in
+  // the deleted oauthAccessToken rows) and re-connecting requires consent again.
+  // Opaque access tokens (the MCP connector path — validated by DB lookup in
+  // auth.ts) also die immediately; a JWT-form access token verified statelessly
+  // via JWKS keeps working until its exp — 1 hour after issue (Better Auth's
+  // oidcProvider default, confirmed against prod accessTokenExpiresAt rows).
+  router.delete(
+    '/connections/:clientId',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      await connectionRepo.revoke(userId, req.params.clientId)
+      res.status(204).end()
     }),
   )
 

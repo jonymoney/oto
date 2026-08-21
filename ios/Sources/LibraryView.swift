@@ -54,30 +54,31 @@ struct LibraryView: View {
         scenePhase == .active && model.items.contains { $0.status == "processing" }
     }
 
-    // Unlimited reads as an exponent on the wordmark — oto∞, like n². The nav
-    // bar strips rich-text styling, so the styled mark is rendered as content
-    // (with the system title hidden) instead of via navigationTitle.
+    // Unlimited reads as an exponent on the wordmark — oto∞, like n².
+    // navigationTitle strips rich-text styling, so the styled mark lives in the
+    // nav bar as a leading toolbar item (the Apple Music/News branded-header
+    // pattern), sized down to fit the inline bar without clipping.
     private var unlimited: Bool { model.usage?.unlimited == true }
 
     private var wordmark: some View {
-        (Text("oto").font(.system(size: 34, weight: .bold))
-            + Text("∞")
-                .font(.system(size: 20, weight: .bold))
-                .baselineOffset(14)
+        (Text("oto").font(.system(size: 26, weight: .bold))
+            + Text(unlimited ? "∞" : "")
+                .font(.system(size: 16, weight: .bold))
+                .baselineOffset(10)
                 .foregroundStyle(Theme.accent))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 4)
-            .accessibilityLabel("oto — unlimited generation")
+            .accessibilityLabel(unlimited ? "oto — unlimited generation" : "oto")
+            .accessibilityAddTraits(.isHeader)
     }
 
     var body: some View {
         NavigationStack {
             content
                 .background(Theme.bg)
-                .navigationTitle(unlimited ? "" : "oto")
-                // Custom wordmark replaces the large title; collapse the empty bar.
-                .navigationBarTitleDisplayMode(unlimited ? .inline : .large)
+                .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    wordmark
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         CollectionsView()
@@ -160,11 +161,6 @@ struct LibraryView: View {
         } else if model.items.isEmpty {
             // ScrollView host so pull-to-refresh works in empty/error states too.
             ScrollView {
-                // Meter lives in the scroll content (not pinned above it) so the
-                // large nav title collapses against it correctly.
-                if unlimited {
-                    wordmark.padding(.horizontal, 16)
-                }
                 if let usage = model.usage, !usage.unlimited {
                     UsageMeter(usage: usage)
                 }
@@ -187,16 +183,6 @@ struct LibraryView: View {
             }
         } else {
             List {
-                if unlimited {
-                    Section {
-                        wordmark
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 4, trailing: 16))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                // Regular (non-pinned) first row: previously a fixed header above
-                // the List, which overlapped the collapsing "oto" large title.
                 if let usage = model.usage, !usage.unlimited {
                     Section {
                         UsageMeter(usage: usage)

@@ -17,9 +17,13 @@ private struct DockedMiniPlayer: ViewModifier {
 }
 
 struct RootView: View {
+    private enum Tab { case library, explore, settings }
+
     @Environment(AuthManager.self) private var auth
     @Environment(PlayerModel.self) private var player
     @State private var showOnboarding = false
+    @State private var tab: Tab = .library
+    @State private var explorePath: [ExploreRoute] = []
 
     var body: some View {
         Group {
@@ -45,6 +49,15 @@ struct RootView: View {
         .onChange(of: player.requestedItem?.id) { _, id in
             if id != nil { Haptics.impact() } // full player sheet presenting
         }
+        // Player sheet tapped an author → land on their profile in Explore.
+        .onChange(of: player.requestedProfile) { _, username in
+            guard let username else { return }
+            player.requestedProfile = nil
+            tab = .explore
+            if explorePath.last != .user(username) {
+                explorePath.append(.user(username))
+            }
+        }
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if !signedIn { player.stop() } // sign-out kills playback + mini-player
         }
@@ -58,13 +71,13 @@ struct RootView: View {
             // no reserved space) and restores it when an item loads — so keep
             // the condition here, inside the builder, not around the modifier
             // (branching around TabView would reset tab/scroll state).
-            TabView { tabs(docked: false) }
+            TabView(selection: $tab) { tabs(docked: false) }
                 .tabViewBottomAccessory {
                     if player.item != nil { MiniPlayer(inAccessory: true) }
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
         } else {
-            TabView { tabs(docked: true) }
+            TabView(selection: $tab) { tabs(docked: true) }
         }
     }
 
@@ -72,11 +85,14 @@ struct RootView: View {
         LibraryView()
             .modifier(DockedMiniPlayer(docked: docked))
             .tabItem { Label("Library", systemImage: "books.vertical") }
-        ExploreView()
+            .tag(Tab.library)
+        ExploreView(path: $explorePath)
             .modifier(DockedMiniPlayer(docked: docked))
             .tabItem { Label("Explore", systemImage: "safari") }
+            .tag(Tab.explore)
         NavigationStack { SettingsView() }
             .modifier(DockedMiniPlayer(docked: docked))
             .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(Tab.settings)
     }
 }

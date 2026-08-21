@@ -12,6 +12,7 @@ final class SettingsModel {
     }
     var usage: API.Usage?
     var prefs: API.Prefs?
+    var connections: [API.Connection]? // nil = loading
     var errorMessage: String?
 
     func load(auth: AuthManager) async {
@@ -32,6 +33,8 @@ final class SettingsModel {
         // Best-effort: profile + usage are display-only, failures just hide them.
         me = try? await API.me()
         usage = try? await API.usage()
+        // ponytail: a failed load shows the quiet empty state, not an error.
+        connections = (try? await API.connections()) ?? []
         if let meEmail = me?.email {
             email = meEmail
         } else {
@@ -57,6 +60,7 @@ struct SettingsView: View {
     @State private var confirmingSignOut = false
     @State private var confirmingRemoveDownloads = false
     @State private var showingPaywall = false
+    @State private var disconnecting: API.Connection?
     @State private var confirmingDelete = false
     @State private var confirmingDeleteFinal = false
     @State private var deleting = false
@@ -184,6 +188,37 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.surface)
 
+            Section("Connected AIs") {
+                if let connections = model.connections {
+                    if connections.isEmpty {
+                        Text("No AIs connected yet.")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.ink2)
+                    } else {
+                        ForEach(connections, id: \.clientId) { conn in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(conn.name).foregroundStyle(Theme.ink)
+                                    Text(connectionSubtitle(conn))
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.ink2)
+                                }
+                                Spacer()
+                                Button("Disconnect", role: .destructive) {
+                                    Haptics.warning()
+                                    disconnecting = conn
+                                }
+                                .font(.footnote)
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
+            }
+            .listRowBackground(Theme.surface)
+
             Section("App") {
                 Toggle("Haptics", isOn: $hapticsEnabled)
             }
@@ -238,6 +273,21 @@ struct SettingsView: View {
             Text("Audios stay in your library and can be downloaded again.")
         }
         .sheet(isPresented: $showingPaywall) { PaywallView() }
+        .confirmationDialog(
+            "Disconnect \(disconnecting?.name ?? "")?",
+            isPresented: Binding(
+                get: { disconnecting != nil },
+                set: { if !$0 { disconnecting = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                if let conn = disconnecting { Task { await disconnect(conn) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It will need to be authorized again to generate audios.")
+        }
         .confirmationDialog("Delete account?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Continue", role: .destructive) { confirmingDeleteFinal = true }
             Button("Cancel", role: .cancel) {}
@@ -260,9 +310,22 @@ struct SettingsView: View {
         }
         .overlay(alignment: .bottom) {
             if let err = model.errorMessage {
-                Text(err).font(.footnote).foregroundStyle(Theme.danger).padding()
+                Text(err)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.danger)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding()
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    // Auto-dismiss; keyed to the message so a newer one resets the timer.
+                    .task(id: err) {
+                        try? await Task.sleep(for: .seconds(4))
+                        model.errorMessage = nil
+                    }
             }
         }
+        .animation(.easeInOut, value: model.errorMessage)
     }
 
     // Empty tag "" = server default (shown only while unset); picking an option saves it.
@@ -285,6 +348,37 @@ struct SettingsView: View {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
+    }
+
+    private static let isoParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private func parseISO(_ s: String?) -> Date? {
+        guard let s else { return nil }
+        return Self.isoParser.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
+
+    private func connectionSubtitle(_ conn: API.Connection) -> String {
+        if let used = parseISO(conn.lastUsedAt) {
+            return "Last used \(used.formatted(.relative(presentation: .named)))"
+        }
+        if let first = parseISO(conn.firstConnectedAt) {
+            return "Connected \(first.formatted(date: .abbreviated, time: .omitted))"
+        }
+        return "Connected"
+    }
+
+    private func disconnect(_ conn: API.Connection) async {
+        do {
+            try await API.disconnect(clientId: conn.clientId)
+            model.connections?.removeAll { $0.clientId == conn.clientId }
+            Haptics.success()
+        } catch {
+            model.errorMessage = "Couldn't disconnect \(conn.name)."
+        }
     }
 
     private func openBillingPortal() async {

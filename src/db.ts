@@ -172,6 +172,13 @@ export async function initDb(): Promise<void> {
       created_at timestamptz not null default now()
     )
   `)
+  await pool.query(
+    'alter table collections add column if not exists is_default boolean not null default false',
+  )
+  // At most one default collection per user — makes lazy creation race-safe.
+  await pool.query(
+    'create unique index if not exists collections_user_default_idx on collections (user_id) where is_default',
+  )
   await pool.query(`
     create table if not exists collection_items (
       collection_id uuid not null references collections(id) on delete cascade,
@@ -945,16 +952,27 @@ export const savedRepo = {
 }
 
 export const collectionRepo = {
-  async list(userId: string): Promise<Array<{ id: string; name: string; count: number }>> {
-    const { rows } = await pool.query<{ id: string; name: string; count: number }>(
-      `select c.id, c.name,
+  async list(
+    userId: string,
+  ): Promise<Array<{ id: string; name: string; isDefault: boolean; count: number }>> {
+    const { rows } = await pool.query<{ id: string; name: string; isDefault: boolean; count: number }>(
+      `select c.id, c.name, c.is_default as "isDefault",
               (select count(*) from collection_items ci where ci.collection_id = c.id)::int as count
          from collections c
         where c.user_id = $1
-        order by c.created_at desc`,
+        order by c.is_default desc, c.created_at desc`,
       [userId],
     )
     return rows
+  },
+
+  /** Lazily creates the user's default collection; the partial unique index makes this race-safe. */
+  async ensureDefault(userId: string): Promise<void> {
+    await pool.query(
+      `insert into collections (user_id, name, is_default) values ($1, 'Favorites', true)
+       on conflict (user_id) where is_default do nothing`,
+      [userId],
+    )
   },
 
   async create(userId: string, name: string): Promise<{ id: string; name: string }> {
@@ -965,13 +983,18 @@ export const collectionRepo = {
     return rows[0]
   },
 
-  /** True if a row was deleted (items cascade). */
-  async delete(userId: string, id: string): Promise<boolean> {
+  /** Deletes a non-default collection (items cascade). The default is undeletable. */
+  async delete(userId: string, id: string): Promise<'deleted' | 'default' | 'missing'> {
     const { rowCount } = await pool.query(
-      'delete from collections where user_id = $1 and id = $2',
+      'delete from collections where user_id = $1 and id = $2 and not is_default',
       [userId, id],
     )
-    return (rowCount ?? 0) > 0
+    if ((rowCount ?? 0) > 0) return 'deleted'
+    const { rows } = await pool.query(
+      'select 1 from collections where user_id = $1 and id = $2',
+      [userId, id],
+    )
+    return rows.length > 0 ? 'default' : 'missing'
   },
 
   /** Ownership check for item mutations. */
@@ -1002,9 +1025,9 @@ export const collectionRepo = {
   async get(
     userId: string,
     id: string,
-  ): Promise<{ id: string; name: string; items: AudioRecord[] } | null> {
-    const { rows } = await pool.query<{ id: string; name: string }>(
-      'select id, name from collections where user_id = $1 and id = $2',
+  ): Promise<{ id: string; name: string; isDefault: boolean; items: AudioRecord[] } | null> {
+    const { rows } = await pool.query<{ id: string; name: string; isDefault: boolean }>(
+      'select id, name, is_default as "isDefault" from collections where user_id = $1 and id = $2',
       [userId, id],
     )
     if (!rows[0]) return null
@@ -1016,6 +1039,57 @@ export const collectionRepo = {
       [id],
     )
     return { ...rows[0], items: items.rows.map(mapRow) }
+  },
+}
+
+// Better Auth's oidcProvider owns the oauth* tables; oto reads them for the
+// "AI connections" list and deletes rows to revoke a client (raw SQL, like the
+// oauthAccessToken read in auth.ts).
+export const connectionRepo = {
+  /** Distinct clients this user authorized (consent and/or issued tokens), with the app's registered name. */
+  async list(userId: string): Promise<
+    Array<{ clientId: string; name: string; firstConnectedAt: string; lastUsedAt: string | null }>
+  > {
+    const { rows } = await pool.query<{
+      client_id: string
+      name: string | null
+      first_connected_at: Date
+      last_used_at: Date | null
+    }>(
+      `select s.client_id, app.name,
+              min(s.created_at) as first_connected_at,
+              max(s.used_at) as last_used_at
+         from (select "clientId" as client_id, "createdAt" as created_at, null::timestamptz as used_at
+                 from "oauthConsent" where "userId" = $1 and "consentGiven"
+               union all
+               select "clientId", "createdAt", "createdAt"
+                 from "oauthAccessToken" where "userId" = $1) s
+         left join "oauthApplication" app on app."clientId" = s.client_id
+        group by s.client_id, app.name
+        order by max(s.used_at) desc nulls last, min(s.created_at) desc`,
+      [userId],
+    )
+    return rows.map((r) => ({
+      clientId: r.client_id,
+      name: r.name ?? r.client_id,
+      firstConnectedAt: r.first_connected_at.toISOString(),
+      lastUsedAt: r.last_used_at ? r.last_used_at.toISOString() : null,
+    }))
+  },
+
+  /**
+   * Revokes a client for this user: deletes its oauthAccessToken rows (access
+   * AND refresh tokens — both live on that table) and its oauthConsent rows.
+   */
+  async revoke(userId: string, clientId: string): Promise<void> {
+    await pool.query('delete from "oauthAccessToken" where "userId" = $1 and "clientId" = $2', [
+      userId,
+      clientId,
+    ])
+    await pool.query('delete from "oauthConsent" where "userId" = $1 and "clientId" = $2', [
+      userId,
+      clientId,
+    ])
   },
 }
 

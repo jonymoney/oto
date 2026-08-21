@@ -6,6 +6,19 @@ extension API {
         let id: String
         let name: String
         let count: Int
+        /// Server-managed default collection ("Favorites") — cannot be deleted.
+        let isDefault: Bool
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = try c.decode(String.self, forKey: .name)
+            count = try c.decode(Int.self, forKey: .count)
+            // decodeIfPresent: older server payloads omit the field.
+            isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        }
+
+        private enum CodingKeys: String, CodingKey { case id, name, count, isDefault }
     }
 
     struct CollectionDetail: Decodable {

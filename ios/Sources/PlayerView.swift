@@ -28,6 +28,9 @@ final class PlayerModel {
     /// Setting this presents the full player sheet from the root (RootView
     /// binds `.sheet(item:)` to it); dismissing the sheet clears it back to nil.
     var requestedItem: AudioItem?
+    /// Set when the user taps an author in the player; RootView routes it onto
+    /// the Explore tab's profile stack and clears it back to nil.
+    var requestedProfile: String?
     private(set) var item: AudioItem?
     private(set) var hasAudio = false
     private(set) var playing = false
@@ -314,6 +317,9 @@ struct PlayerView: View {
     @State private var localVisibility: String?             // optimistic PATCH result
     @State private var showDeleteConfirm = false
     @State private var controlsOffscreen = false            // drives the compact nav header
+    @State private var collections: [API.Collection] = []   // fetched on collection-button tap
+    @State private var showCollections = false
+    @State private var addedToCollection = false            // brief checkmark confirmation
 
     private static let speeds: [Float] = [1, 1.25, 1.5, 2]
     private static let visibilities: [(value: String, icon: String)] = [
@@ -382,10 +388,21 @@ struct PlayerView: View {
                         // the on-device cache (populated by Settings/Explore); add
                         // ownerAvatarUrl to the API if cold-start matters.
                         AvatarImageView(username: owner, avatarUrl: nil, size: 22)
-                        Text(authorLabel)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.ink)
-                        if owner == nil { visibilityMenu }
+                        if let o = owner {
+                            Button { openProfile(o) } label: {
+                                Text(authorLabel)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Theme.ink)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Text(authorLabel)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.ink)
+                            visibilityMenu
+                        }
+                        Spacer()
+                        collectionButton
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -593,20 +610,67 @@ struct PlayerView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
     }
 
-    // ponytail: attribution card only — a Profile jump from the player needs
-    // cross-tab navigation; add when the profile route is reachable from here.
+    /// Attribution card — tapping opens the author's profile on the Explore tab.
     private func authorCard(_ username: String) -> some View {
-        HStack(spacing: 10) {
-            // Renders from the on-device avatar cache — the payload has no avatar URL.
-            AvatarImageView(username: username, avatarUrl: nil, size: 36)
-            Text("@\(username)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.ink)
-            Spacer()
+        Button { openProfile(username) } label: {
+            HStack(spacing: 10) {
+                // Renders from the on-device avatar cache — the payload has no avatar URL.
+                AvatarImageView(username: username, avatarUrl: nil, size: 36)
+                Text("@\(username)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+            }
+            .padding(14)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
         }
-        .padding(14)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
+        .buttonStyle(.plain)
+    }
+
+    /// Dismiss the sheet and hand the profile jump to RootView (it switches to
+    /// Explore and pushes unless that profile is already on top of the stack).
+    private func openProfile(_ username: String) {
+        Haptics.tap()
+        model.requestedProfile = username
+        model.requestedItem = nil // dismisses the full player sheet
+        dismiss()                 // covers a navigation-pushed presentation too
+    }
+
+    /// Quiet add-to-collection: fetches the list on tap (server guarantees a
+    /// default "Favorites" exists), picks via dialog, checkmark-swaps briefly.
+    private var collectionButton: some View {
+        Button {
+            Haptics.tap()
+            Task {
+                collections = (try? await API.collections()) ?? []
+                if !collections.isEmpty { showCollections = true }
+            }
+        } label: {
+            Image(systemName: addedToCollection ? "checkmark.circle.fill" : "plus.circle")
+                .font(.title3)
+                .foregroundStyle(addedToCollection ? Theme.accent : Theme.ink2)
+        }
+        .accessibilityLabel("Add to collection")
+        .confirmationDialog("Add to collection", isPresented: $showCollections,
+                            titleVisibility: .visible) {
+            ForEach(collections) { c in
+                Button(c.name) { add(to: c) }
+            }
+        }
+    }
+
+    private func add(to c: API.Collection) {
+        Task {
+            guard (try? await API.addToCollection(id: c.id, audioId: item.id)) != nil else { return }
+            Haptics.success()
+            withAnimation { addedToCollection = true }
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation { addedToCollection = false }
+        }
     }
 
     private var sleepMenu: some View {

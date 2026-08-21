@@ -124,20 +124,24 @@ final class ExploreModel {
 
 struct ExploreView: View {
     @Environment(AuthManager.self) private var auth
+    /// Owned by RootView so the player sheet can push a profile onto this stack.
+    @Binding var path: [ExploreRoute]
     @State private var model = ExploreModel()
     @State private var query = ""
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             content
                 .background(Theme.bg)
                 .navigationTitle("Explore")
                 .searchable(text: $query, prompt: "Find people")
-                .navigationDestination(for: String.self) { username in
-                    UserProfileView(username: username, explore: model)
-                }
-                .navigationDestination(for: TagRoute.self) { route in
-                    TagFeedView(tag: route.tag, explore: model)
+                .navigationDestination(for: ExploreRoute.self) { route in
+                    switch route {
+                    case .user(let username):
+                        UserProfileView(username: username, explore: model)
+                    case .tag(let tag):
+                        TagFeedView(tag: tag, explore: model)
+                    }
                 }
                 .refreshable { await model.load(auth: auth) }
                 .task { await model.load(auth: auth) }
@@ -173,7 +177,7 @@ struct ExploreView: View {
     private var searchList: some View {
         List {
             ForEach(model.searchResults, id: \.username) { user in
-                NavigationLink(value: user.username) {
+                NavigationLink(value: ExploreRoute.user(user.username)) {
                     HStack(spacing: 12) {
                         AvatarImageView(username: user.username, avatarUrl: user.avatarUrl)
                         Text("@\(user.username)").foregroundStyle(Theme.ink)
@@ -204,7 +208,7 @@ struct ExploreView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 16) {
                             ForEach(model.followedUsers, id: \.username) { user in
-                                NavigationLink(value: user.username) {
+                                NavigationLink(value: ExploreRoute.user(user.username)) {
                                     VStack(spacing: 4) {
                                         AvatarImageView(username: user.username, avatarUrl: user.avatarUrl, size: 52)
                                         Text("@\(user.username)")
@@ -277,7 +281,7 @@ struct ExploreView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(tags, id: \.self) { t in
-                        NavigationLink(value: TagRoute(tag: t.tag)) {
+                        NavigationLink(value: ExploreRoute.tag(t.tag)) {
                             HStack(spacing: 5) {
                                 Text("#\(t.tag)")
                                     .font(.subheadline.weight(.medium))
@@ -302,9 +306,11 @@ struct ExploreView: View {
     }
 }
 
-/// Distinguishes tag pushes from username pushes (plain String = username).
-struct TagRoute: Hashable {
-    let tag: String
+/// Explore tab's navigation destinations, as a typed path so RootView can
+/// inspect/push (e.g. "open this author's profile" from the player sheet).
+enum ExploreRoute: Hashable {
+    case user(String)
+    case tag(String)
 }
 
 /// Horizontal-rail card: cover, 2-line title, @owner. Tap plays; long-press saves.
@@ -473,9 +479,6 @@ struct UserProfileView: View {
                 .font(.subheadline.weight(.semibold))
                 .buttonStyle(.bordered)
                 .tint(youFollow ? Theme.ink3 : Theme.accent)
-            if youFollow && profile.followsYou {
-                Text("Friends").font(.caption).foregroundStyle(Theme.accent)
-            }
         }
         .frame(maxWidth: .infinity)
     }

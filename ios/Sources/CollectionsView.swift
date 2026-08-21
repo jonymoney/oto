@@ -35,7 +35,10 @@ struct CollectionsView: View {
                         }
                         .listRowBackground(Theme.surface)
                         .swipeActions(edge: .trailing) {
-                            Button("Delete", role: .destructive) { pendingDelete = c }
+                            // Server refuses to delete the default collection; don't offer it.
+                            if !c.isDefault {
+                                Button("Delete", role: .destructive) { pendingDelete = c }
+                            }
                         }
                     }
                 }
