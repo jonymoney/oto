@@ -13,14 +13,14 @@ struct MiniPlayer: View {
 
     var body: some View {
         Group {
-            if let item = model.item {
+            if model.showsMiniPlayer, let item = model.item {
                 bar(item)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         // Animates only the initial mount (and removal on stop) — the bar
         // stays mounted across sheet present/dismiss, so no re-entrance.
-        .animation(.snappy(duration: 0.3), value: model.item?.id)
+        .animation(.snappy(duration: 0.3), value: model.showsMiniPlayer ? model.item?.id : nil)
     }
 
     private func present(_ item: AudioItem) {

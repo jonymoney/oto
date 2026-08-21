@@ -7,7 +7,7 @@ private struct DockedMiniPlayer: ViewModifier {
     let docked: Bool
     func body(content: Content) -> some View {
         if docked {
-            // MiniPlayer renders nothing when player.item == nil, so this inset
+            // MiniPlayer renders nothing when player.showsMiniPlayer is false, so this inset
             // contributes zero height (spacing is 0) — no empty bar when idle.
             content.safeAreaInset(edge: .bottom, spacing: 0) { MiniPlayer() }
         } else {
@@ -73,7 +73,7 @@ struct RootView: View {
             // (branching around TabView would reset tab/scroll state).
             TabView(selection: $tab) { tabs(docked: false) }
                 .tabViewBottomAccessory {
-                    if player.item != nil { MiniPlayer(inAccessory: true) }
+                    if player.showsMiniPlayer { MiniPlayer(inAccessory: true) }
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
         } else {

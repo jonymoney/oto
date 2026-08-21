@@ -33,6 +33,11 @@ final class PlayerModel {
     var requestedProfile: String?
     private(set) var item: AudioItem?
     private(set) var hasAudio = false
+    /// Single gate for every mini-player mount point: show it only when audio
+    /// is actually loaded (playing or paused). `item` alone isn't enough —
+    /// load() sets it before the fetch, so an error or a still-generating
+    /// audio would leave a dead bar after the sheet is dismissed.
+    var showsMiniPlayer: Bool { hasAudio && item != nil }
     private(set) var playing = false
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
