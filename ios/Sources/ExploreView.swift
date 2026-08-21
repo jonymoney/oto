@@ -1,40 +1,5 @@
 import SwiftUI
 
-/// Circle avatar: remote image when available, otherwise the username's first
-/// letter on a deterministic color (same FNV-1a palette as the cover art, so a
-/// user keeps their color everywhere).
-struct InitialsAvatar: View {
-    let username: String
-    let avatarUrl: String?
-    var size: CGFloat = 40
-
-    var body: some View {
-        Group {
-            if let s = avatarUrl, let url = URL(string: s) {
-                AsyncImage(url: url) { img in
-                    img.resizable().scaledToFill()
-                } placeholder: {
-                    initials
-                }
-            } else {
-                initials
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-    }
-
-    private var initials: some View {
-        Circle()
-            .fill(CoverArt.palette(id: username, mood: nil)[0])
-            .overlay {
-                Text(String(username.prefix(1)).uppercased())
-                    .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-    }
-}
-
 /// Explore-feed / profile audio row: cover, title, @owner · duration.
 /// Tap plays; context menu + trailing swipe save to library.
 struct SocialAudioRow: View {
@@ -207,7 +172,7 @@ struct ExploreView: View {
             ForEach(model.searchResults, id: \.username) { user in
                 NavigationLink(value: user.username) {
                     HStack(spacing: 12) {
-                        InitialsAvatar(username: user.username, avatarUrl: user.avatarUrl)
+                        AvatarImageView(username: user.username, avatarUrl: user.avatarUrl)
                         Text("@\(user.username)").foregroundStyle(Theme.ink)
                         Spacer()
                         followButton(for: user)
@@ -238,7 +203,7 @@ struct ExploreView: View {
                             ForEach(model.followedUsers, id: \.username) { user in
                                 NavigationLink(value: user.username) {
                                     VStack(spacing: 4) {
-                                        InitialsAvatar(username: user.username, avatarUrl: user.avatarUrl, size: 52)
+                                        AvatarImageView(username: user.username, avatarUrl: user.avatarUrl, size: 52)
                                         Text("@\(user.username)")
                                             .font(.caption2).lineLimit(1)
                                             .foregroundStyle(Theme.ink2)
@@ -333,7 +298,7 @@ struct UserProfileView: View {
 
     private func header(_ profile: API.UserProfile) -> some View {
         VStack(spacing: 10) {
-            InitialsAvatar(username: profile.username, avatarUrl: profile.avatarUrl, size: 80)
+            AvatarImageView(username: profile.username, avatarUrl: profile.avatarUrl, size: 80)
             Text("@\(profile.username)")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(Theme.ink)

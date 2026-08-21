@@ -16,6 +16,7 @@ interface AudioRow {
   voice: string
   model: string
   format: string
+  client_name: string | null
   object_key: string
   duration_sec: string | null
   char_count: number
@@ -45,6 +46,7 @@ function mapRow(row: AudioRow): AudioRecord {
     voice: row.voice,
     model: row.model,
     format: row.format,
+    clientName: row.client_name,
     objectKey: row.object_key,
     durationSec: row.duration_sec === null ? null : Number(row.duration_sec),
     charCount: row.char_count,
@@ -139,7 +141,8 @@ export async function initDb(): Promise<void> {
       add column if not exists slug text,
       add column if not exists position_sec double precision,
       add column if not exists played_at timestamptz,
-      add column if not exists visibility text not null default 'private'
+      add column if not exists visibility text not null default 'private',
+      add column if not exists client_name text
   `)
   // Social graph + saves + collections (user ids match audios.user_id: uuid).
   await pool.query(`
@@ -261,7 +264,7 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at, visibility'
+  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, client_name, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at, visibility'
 
 /** COLUMNS qualified with a table alias, for joined queries. */
 const qcols = (t: string) =>
@@ -304,9 +307,9 @@ export const audioRepo = {
     const { rows } = await pool.query<AudioRow>(
       `insert into audios
          (user_id, text_hash, text, title, summary, emoji, language, mood, tags,
-          voice, model, format, object_key, duration_sec, char_count,
+          voice, model, format, client_name, object_key, duration_sec, char_count,
           status, chunks_total, chunks_done, error_message)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        on conflict (user_id, text_hash) do nothing
        returning ${COLUMNS}`,
       [
@@ -322,6 +325,7 @@ export const audioRepo = {
         audio.voice,
         audio.model,
         audio.format,
+        audio.clientName,
         audio.objectKey,
         audio.durationSec,
         audio.charCount,

@@ -33,6 +33,8 @@ export interface AudioRecord {
   voice: string
   model: string
   format: string
+  /** Friendly name of the MCP client that generated this audio (e.g. "Claude Code"). */
+  clientName: string | null
   /** Bucket object key: audio/<userId>/<textHash>.mp3 */
   objectKey: string
   durationSec: number | null

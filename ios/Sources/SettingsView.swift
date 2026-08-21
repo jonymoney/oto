@@ -71,7 +71,8 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     AvatarPickerView(
                         avatarUrl: model.me?.avatarUrl,
-                        fallbackText: model.me?.username ?? model.email ?? "oto"
+                        fallbackText: model.me?.username ?? model.email ?? "oto",
+                        cacheKey: model.me?.username
                     ) { url in
                         model.me?.avatarUrl = url
                     }

@@ -281,13 +281,27 @@ struct PlayerView: View {
     let item: AudioItem
     @Environment(AuthManager.self) private var auth
     @Environment(PlayerModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     @State private var scrub: Double?                       // drag-in-progress target
     @State private var coverImage = Image(systemName: "waveform")
+    @State private var localVisibility: String?             // optimistic PATCH result
+    @State private var showDeleteConfirm = false
 
     private static let speeds: [Float] = [1, 1.25, 1.5, 2]
+    private static let visibilities: [(value: String, icon: String)] = [
+        ("private", "lock"), ("followers", "person.2"),
+        ("friends", "person.2.fill"), ("public", "globe"),
+    ]
 
     private var summary: String? { model.detail?.summary ?? item.summary }
     private var tags: [String] { model.detail?.tags ?? item.tags }
+    /// nil = the current user's own audio.
+    private var owner: String? { model.detail?.owner ?? item.owner }
+    private var authorLabel: String { owner.map { "@\($0)" } ?? "Me" }
+    private var visibility: String {
+        localVisibility ?? model.detail?.visibility ?? item.visibility ?? "private"
+    }
+    private var clientName: String? { model.detail?.clientName ?? item.clientName }
     // Short link from the API; /a/{id} fallback keeps stale cached lists sharable.
     private var shareURL: URL {
         URL(string: model.detail?.shareUrl ?? item.shareUrl ?? "")
@@ -318,7 +332,13 @@ struct PlayerView: View {
                 VStack(spacing: 8) {
                     Text(item.title).font(.title2).bold().multilineTextAlignment(.center)
                         .foregroundStyle(Theme.ink)
-                    Text(item.voice).foregroundStyle(Theme.ink2)
+                    Text(authorLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.ink)
+                    Text(clientName.map { "\(item.voice) · made with \($0)" } ?? item.voice)
+                        .font(.caption)
+                        .foregroundStyle(Theme.ink2)
+                    if owner == nil { visibilityMenu }
                     if let s = summary, !s.isEmpty {
                         Text(s).font(.subheadline).foregroundStyle(Theme.ink2)
                             .multilineTextAlignment(.center)
@@ -406,11 +426,43 @@ struct PlayerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
-        .navigationTitle(item.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("")
+        .toolbarTitleDisplayMode(.inline)
         .toolbar {
+            // Long titles overflow the nav bar — show the author there instead;
+            // the full title stays prominent in the body.
+            ToolbarItem(placement: .principal) {
+                Text(authorLabel)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(item: shareURL, preview: SharePreview(item.title, image: coverImage))
+                if owner == nil {
+                    Menu {
+                        ShareLink(item: shareURL, preview: SharePreview(item.title, image: coverImage))
+                        Button("Delete", systemImage: "trash", role: .destructive) {
+                            Haptics.warning()
+                            showDeleteConfirm = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                } else {
+                    ShareLink(item: shareURL, preview: SharePreview(item.title, image: coverImage))
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete this audio? It also disappears for anyone who saved it. This cannot be undone.",
+            isPresented: $showDeleteConfirm, titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    guard (try? await API.deleteAudio(id: item.id)) != nil else { return }
+                    Haptics.success()
+                    model.stop() // teardown + clears requestedItem (dismisses the sheet)
+                    dismiss()    // covers a navigation-pushed presentation too
+                }
             }
         }
         .task {
@@ -427,6 +479,37 @@ struct PlayerView: View {
                 try? await Task.sleep(for: .seconds(4))
                 await model.pollGenerating()
             }
+        }
+    }
+
+    /// Compact capsule menu switching the audio's visibility (own audios only).
+    private var visibilityMenu: some View {
+        Menu {
+            ForEach(Self.visibilities, id: \.value) { v in
+                Button {
+                    guard v.value != visibility else { return }
+                    Task {
+                        if (try? await API.setVisibility(audioId: item.id, v.value)) != nil {
+                            localVisibility = v.value
+                            Haptics.selection()
+                        }
+                    }
+                } label: {
+                    if v.value == visibility {
+                        Label(v.value.capitalized, systemImage: "checkmark")
+                    } else {
+                        Label(v.value.capitalized, systemImage: v.icon)
+                    }
+                }
+            }
+        } label: {
+            let icon = Self.visibilities.first { $0.value == visibility }?.icon ?? "lock"
+            Label(visibility.capitalized, systemImage: icon)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Theme.ink2)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Theme.surface, in: Capsule())
+                .overlay(Capsule().stroke(Theme.line))
         }
     }
 

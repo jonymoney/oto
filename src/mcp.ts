@@ -147,6 +147,17 @@ function contentHash(text: string, voice: string, model: string, instructions?: 
   return createHash('sha256').update(key).digest('hex')
 }
 
+/** Friendly display name for the MCP client id reported at initialize. */
+function clientDisplayName(raw: string | undefined): string | null {
+  if (!raw) return null
+  const l = raw.toLowerCase()
+  if (l.includes('claude-code') || l.includes('claude code')) return 'Claude Code'
+  if (l.includes('claude')) return 'Claude'
+  if (l.includes('chatgpt') || l.includes('openai')) return 'ChatGPT'
+  if (l.includes('cursor')) return 'Cursor'
+  return raw.slice(0, 40)
+}
+
 function fmtDuration(durationSec: number | null): string {
   if (durationSec === null) return 'unknown length'
   const s = Math.round(durationSec)
@@ -422,6 +433,8 @@ export function buildServer(): McpServer {
         }
 
         const objectKey = `audio/${userId}/${hash}.${config.TTS_FORMAT}`
+        // Who made it: the connected MCP client's implementation info.
+        const clientName = clientDisplayName(server.server.getClientVersion()?.name)
 
         if (cleanText.length > SYNC_THRESHOLD) {
           const chunks = chunkText(cleanText)
@@ -434,6 +447,7 @@ export function buildServer(): McpServer {
             voice: resolvedVoice,
             model,
             format: config.TTS_FORMAT,
+            clientName,
             objectKey,
             durationSec: null,
             charCount: cleanText.length,
@@ -489,6 +503,7 @@ export function buildServer(): McpServer {
           voice: result.voice,
           model: result.model,
           format: result.format,
+          clientName,
           objectKey,
           durationSec: result.durationSec,
           charCount: result.charCount,

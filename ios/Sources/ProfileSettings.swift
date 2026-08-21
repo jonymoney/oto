@@ -147,6 +147,8 @@ struct AvatarPickerView: View {
     let avatarUrl: String?
     /// Username or email — the initial letter and deterministic color come from it.
     let fallbackText: String
+    /// Stable AvatarCache key (the username); nil falls back to "me".
+    var cacheKey: String? = nil
     var size: CGFloat = 56
     let onUploaded: (String) -> Void
 
@@ -174,31 +176,8 @@ struct AvatarPickerView: View {
         }
     }
 
-    @ViewBuilder private var avatar: some View {
-        if let s = avatarUrl, let url = URL(string: s) {
-            AsyncImage(url: url) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                initials
-            }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-        } else {
-            initials.frame(width: size, height: size)
-        }
-    }
-
-    private var initials: some View {
-        // Same deterministic hashing scheme as the cover art (FNV-1a → palette).
-        let color = CoverArt.palette(id: fallbackText, mood: nil)[0]
-        let letter = fallbackText.first.map { String($0).uppercased() } ?? "?"
-        return Circle()
-            .fill(color)
-            .overlay {
-                Text(letter)
-                    .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-            }
+    private var avatar: some View {
+        AvatarImageView(username: cacheKey, avatarUrl: avatarUrl, size: size, fallbackText: fallbackText)
     }
 
     private func upload(_ item: PhotosPickerItem) async {
@@ -211,7 +190,11 @@ struct AvatarPickerView: View {
             return
         }
         do {
-            onUploaded(try await API.uploadAvatar(jpeg: jpeg))
+            let url = try await API.uploadAvatar(jpeg: jpeg)
+            // Seed the cache with the just-uploaded bytes so the new avatar
+            // shows instantly everywhere, without re-downloading it.
+            AvatarCache.store(data: jpeg, for: cacheKey ?? "me")
+            onUploaded(url)
             Haptics.success()
         } catch {
             failed = true

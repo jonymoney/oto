@@ -143,12 +143,27 @@ function fmtDur(sec: number | null): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-function sharePage(rec: AudioRecord, username: string, slug: string): string {
+/** Avatar image, or an initials circle tinted deterministically from the username. */
+function avatarHtml(username: string, avatarUrl: string | null): string {
+  if (avatarUrl) return `<img class="ava" src="${esc(avatarUrl)}" alt="">`
+  const tint = palette(username, null)
+  return `<div class="ava ini" style="background:${tint[0]}">${esc(username[0]?.toUpperCase() ?? '?')}</div>`
+}
+
+function sharePage(
+  rec: AudioRecord,
+  username: string,
+  slug: string,
+  avatarUrl: string | null,
+): string {
   const title = esc(rec.title)
-  const desc = esc(rec.summary ?? 'Listen on oto')
+  const name = esc(username)
+  const desc = esc(`${rec.summary ?? 'Listen on oto'} · by @${username}`)
   const coverUrl = `${shareUrlFor(username, slug)}/cover.png`
   const chips = rec.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')
   const bars = '<i></i>'.repeat(5)
+  const meta = [esc(rec.voice), fmtDur(rec.durationSec)]
+  if (rec.clientName) meta.push(`made with ${esc(rec.clientName)}`)
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title} — oto</title>
@@ -169,7 +184,14 @@ box-shadow:0 10px 30px rgba(22,19,15,.18)}
 .cover .emoji{position:absolute;inset:0;display:grid;place-items:center;font-size:4rem;
 text-shadow:0 2px 12px rgba(0,0,0,.25)}
 h1{font-size:1.15rem;line-height:1.4;margin:1.2rem 0 .3rem;overflow-wrap:anywhere}
-.meta{color:#6f6555;font-size:.85rem;margin:0 0 .8rem}
+.back{position:fixed;top:1rem;left:1.1rem;color:#6f6555;text-decoration:none;font-size:.8rem}
+.back:hover{color:#f5a623}
+.byline{display:inline-flex;align-items:center;gap:.45rem;color:#f5a623;font-weight:700;
+font-size:.95rem;text-decoration:none;margin:0 0 .35rem}
+.byline:hover{text-decoration:underline}
+.byline .ava{width:1.5rem;height:1.5rem;border-radius:50%;object-fit:cover;flex:none}
+.byline .ini{display:grid;place-items:center;color:#fffdf8;font-size:.7rem;font-weight:700}
+.meta{color:#6f6555;font-size:.8rem;margin:0 0 .8rem}
 .chips{display:flex;flex-wrap:wrap;gap:.35rem;justify-content:center;margin-bottom:1.4rem}
 .chip{background:#e8e2d5;color:#6f6555;border-radius:99px;padding:.2rem .65rem;font-size:.72rem}
 .player{display:flex;align-items:center;gap:.8rem;background:#fffdf8;border:1px solid #e3dccc;
@@ -189,11 +211,14 @@ animation-play-state:paused}
 @keyframes eq{0%,100%{height:25%}50%{height:100%}}
 footer{margin-top:1.6rem;font-size:.8rem;color:#6f6555}
 footer a{color:#16130f;text-decoration:none;font-weight:700}footer a:hover{color:#f5a623}
-</style></head><body><main>
+</style></head><body>
+<a class="back" href="/${name}">← @${name}</a>
+<main>
 <div class="brand"><span class="led">◉</span> oto</div>
 <div class="cover">${meshSvg(rec.id, rec.mood, 320, 320)}${rec.emoji ? `<span class="emoji">${esc(rec.emoji)}</span>` : ''}</div>
 <h1>${title}</h1>
-<p class="meta">${esc(rec.voice)} · ${fmtDur(rec.durationSec)}</p>
+<a class="byline" href="/${name}">${avatarHtml(username, avatarUrl)}<span>@${name}</span></a>
+<p class="meta">${meta.join(' · ')}</p>
 ${chips ? `<div class="chips">${chips}</div>` : ''}
 <div class="player" id="player">
   <button id="pp" aria-label="Play">▶</button>
@@ -318,11 +343,7 @@ function profilePage(
   rows: Array<{ rec: AudioRecord; slug: string }>,
 ): string {
   const name = esc(username)
-  // Deterministic avatar tint from the username — same hashing as the covers.
-  const tint = palette(username, null)
-  const avatar = avatarUrl
-    ? `<img class="ava" src="${esc(avatarUrl)}" alt="">`
-    : `<div class="ava ini" style="background:${tint[0]}">${esc(username[0]?.toUpperCase() ?? '?')}</div>`
+  const avatar = avatarHtml(username, avatarUrl)
   const list = rows
     .map(
       ({ rec, slug }) => `<a class="row" href="${esc(shareUrlFor(username, slug))}">
@@ -396,8 +417,10 @@ export function shortShareRouter(): Router {
     wrap(async (req, res) => {
       const rec = await readyBySlug(req.params.username, req.params.slug)
       if (!rec) return res.status(404).type('html').send(notFoundPage())
+      const user = await userRepo.findByUsername(req.params.username)
+      const avatarUrl = user?.image ? await presignAvatarUrl(user.image) : null
       res.setHeader('Cache-Control', 'no-store')
-      res.type('html').send(sharePage(rec, req.params.username, req.params.slug))
+      res.type('html').send(sharePage(rec, req.params.username, req.params.slug, avatarUrl))
     }),
   )
 

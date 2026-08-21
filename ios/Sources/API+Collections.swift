@@ -54,6 +54,12 @@ extension API {
         _ = try await send(req)
     }
 
+    /// Permanently deletes one of the caller's own audios (server also removes
+    /// it for anyone who saved it).
+    static func deleteAudio(id: String) async throws {
+        _ = try await send(request("api/audios/\(id)", method: "DELETE"))
+    }
+
     /// Removes someone else's saved audio from the library.
     /// ponytail: named removeSavedAudio (not unsaveAudio) to avoid colliding
     /// with the save/unsave pair in API+Social.swift.

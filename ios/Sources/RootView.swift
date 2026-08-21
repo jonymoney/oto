@@ -7,6 +7,8 @@ private struct DockedMiniPlayer: ViewModifier {
     let docked: Bool
     func body(content: Content) -> some View {
         if docked {
+            // MiniPlayer renders nothing when player.item == nil, so this inset
+            // contributes zero height (spacing is 0) — no empty bar when idle.
             content.safeAreaInset(edge: .bottom, spacing: 0) { MiniPlayer() }
         } else {
             content
@@ -51,6 +53,11 @@ struct RootView: View {
     @ViewBuilder private var signedIn: some View {
         if #available(iOS 26.0, *) {
             // System slots the mini-player above the tab bar (Music-style capsule).
+            // Verified on the iOS 26.0 simulator: when the builder's `if` is
+            // false the system removes the capsule entirely (no empty accessory,
+            // no reserved space) and restores it when an item loads — so keep
+            // the condition here, inside the builder, not around the modifier
+            // (branching around TabView would reset tab/scroll state).
             TabView { tabs(docked: false) }
                 .tabViewBottomAccessory {
                     if player.item != nil { MiniPlayer(inAccessory: true) }

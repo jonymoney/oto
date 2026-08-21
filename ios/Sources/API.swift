@@ -19,9 +19,11 @@ struct AudioItem: Identifiable, Codable, Hashable {
     // Social: owner username (nil = own audio) and visibility (own audios only).
     let owner: String?
     let visibility: String?
+    // MCP client that generated the audio (e.g. "Claude"), when known.
+    let clientName: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility
+        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility, clientName
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +45,7 @@ struct AudioItem: Identifiable, Codable, Hashable {
         playedAt = try c.decodeIfPresent(String.self, forKey: .playedAt)
         owner = try c.decodeIfPresent(String.self, forKey: .owner)
         visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
+        clientName = try c.decodeIfPresent(String.self, forKey: .clientName)
     }
 }
 
@@ -67,9 +70,12 @@ struct AudioDetail: Decodable {
     let shareUrl: String?
     let positionSec: Double?
     let playedAt: String?
+    let owner: String?
+    let visibility: String?
+    let clientName: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt
+        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility, clientName
     }
 
     init(from decoder: Decoder) throws {
@@ -89,6 +95,9 @@ struct AudioDetail: Decodable {
         shareUrl = try c.decodeIfPresent(String.self, forKey: .shareUrl)
         positionSec = try c.decodeIfPresent(Double.self, forKey: .positionSec)
         playedAt = try c.decodeIfPresent(String.self, forKey: .playedAt)
+        owner = try c.decodeIfPresent(String.self, forKey: .owner)
+        visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
+        clientName = try c.decodeIfPresent(String.self, forKey: .clientName)
     }
 }
 

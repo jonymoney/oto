@@ -36,6 +36,7 @@ function listItem(rec: AudioRecord) {
     tags: rec.tags,
     durationSec: rec.durationSec,
     voice: rec.voice,
+    clientName: rec.clientName,
     charCount: rec.charCount,
     createdAt: rec.createdAt,
     status: rec.status,

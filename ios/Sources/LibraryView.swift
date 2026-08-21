@@ -59,6 +59,16 @@ struct LibraryView: View {
                 .background(Theme.bg)
                 .navigationTitle("oto")
             .toolbar {
+                // Unlimited plan shows as a discreet status mark up here instead
+                // of a full-width row; quota users keep the meter row below.
+                if model.usage?.unlimited == true {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Image(systemName: "infinity")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.accent)
+                            .accessibilityLabel("Unlimited generation")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         CollectionsView()
@@ -80,6 +90,12 @@ struct LibraryView: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { Task { await model.load(auth: auth) } }
+            }
+            // Full-player sheet dismissed (requestedItem → nil): reload so a
+            // delete inside the player drops out of the list immediately, and
+            // playback positions ("Continue Listening") stay fresh.
+            .onChange(of: player.requestedItem?.id) { _, id in
+                if id == nil { Task { await model.load(auth: auth) } }
             }
             .overlay(alignment: .bottom) {
                 if let err = model.errorMessage, !model.items.isEmpty {
@@ -117,7 +133,7 @@ struct LibraryView: View {
             ScrollView {
                 // Meter lives in the scroll content (not pinned above it) so the
                 // large nav title collapses against it correctly.
-                if let usage = model.usage {
+                if let usage = model.usage, !usage.unlimited {
                     UsageMeter(usage: usage)
                 }
                 Group {
@@ -141,7 +157,7 @@ struct LibraryView: View {
             List {
                 // Regular (non-pinned) first row: previously a fixed header above
                 // the List, which overlapped the collapsing "oto" large title.
-                if let usage = model.usage {
+                if let usage = model.usage, !usage.unlimited {
                     Section {
                         UsageMeter(usage: usage)
                             .listRowInsets(EdgeInsets())
@@ -319,8 +335,9 @@ struct LibraryView: View {
     }
 }
 
-/// Read-only generation-usage meter shown atop the library. Generation happens
-/// in Claude, not here — this only displays the running total against the quota.
+/// Read-only generation-usage meter shown atop the library for QUOTA users.
+/// Generation happens in Claude, not here — this only displays the running
+/// total against the quota. Unlimited users get the toolbar ∞ mark instead.
 struct UsageMeter: View {
     let usage: API.Usage
     @Environment(\.openURL) private var openURL
@@ -330,43 +347,37 @@ struct UsageMeter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if usage.unlimited {
-                Label("Unlimited generation", systemImage: "infinity")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Theme.ink2)
-            } else {
-                HStack {
-                    Text("\(minutes(usage.generatedSec)) / \(minutes(usage.quotaSec)) min generated")
-                        .font(.subheadline.weight(.medium).monospacedDigit())
-                        .foregroundStyle(atLimit ? Theme.danger : Theme.ink)
-                    Spacer()
-                    Button("Upgrade") {
-                        if usage.showUpgrade == true {
-                            showPaywall = true
-                        } else {
-                            Task {
-                                // App users are already signed in — go straight to
-                                // Stripe. Fall back to the web page if billing is off.
-                                if let url = try? await API.checkout() { openURL(url) }
-                                else { openURL(URL(string: "https://oto.audio/upgrade")!) }
-                            }
+            HStack {
+                Text("\(minutes(usage.generatedSec)) / \(minutes(usage.quotaSec)) min generated")
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .foregroundStyle(atLimit ? Theme.danger : Theme.ink)
+                Spacer()
+                Button("Upgrade") {
+                    if usage.showUpgrade == true {
+                        showPaywall = true
+                    } else {
+                        Task {
+                            // App users are already signed in — go straight to
+                            // Stripe. Fall back to the web page if billing is off.
+                            if let url = try? await API.checkout() { openURL(url) }
+                            else { openURL(URL(string: "https://oto.audio/upgrade")!) }
                         }
                     }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.accent)
                 }
-                GeometryReader { geo in
-                    let frac = usage.quotaSec > 0 ? min(usage.generatedSec / usage.quotaSec, 1) : 0
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Theme.line)
-                        Capsule().fill(atLimit ? Theme.danger : Theme.accent)
-                            .frame(width: geo.size.width * frac)
-                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+            GeometryReader { geo in
+                let frac = usage.quotaSec > 0 ? min(usage.generatedSec / usage.quotaSec, 1) : 0
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.line)
+                    Capsule().fill(atLimit ? Theme.danger : Theme.accent)
+                        .frame(width: geo.size.width * frac)
                 }
-                .frame(height: 6)
-                if atLimit {
-                    Text("Limit reached").font(.caption).foregroundStyle(Theme.danger)
-                }
+            }
+            .frame(height: 6)
+            if atLimit {
+                Text("Limit reached").font(.caption).foregroundStyle(Theme.danger)
             }
         }
         .padding(.horizontal, 16)
