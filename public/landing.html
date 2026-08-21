@@ -162,9 +162,22 @@
   .faq details[open] summary::after{content:"–"}
   .faq p{color:var(--ink-muted);margin:.6rem 0 0}
 
-  footer{border-top:2px solid var(--ink);padding:2.2rem 0 3rem;font-size:.9rem;color:var(--ink-muted)}
-  footer .row{display:flex;flex-wrap:wrap;gap:.4rem 1.6rem;align-items:center}
+  footer{border-top:2px solid var(--ink);padding:2.6rem 0 3rem;font-size:.9rem;color:var(--ink-muted)}
   footer a{text-decoration:none}
+  .foot-top{display:flex;flex-wrap:wrap;gap:1.8rem 3rem;justify-content:space-between;align-items:flex-start}
+  .foot-brand .wordmark{height:22px;margin-bottom:.9rem}
+  .foot-nav{display:flex;flex-wrap:wrap;gap:.5rem 1.6rem}
+  .foot-bottom{display:flex;flex-wrap:wrap;gap:.4rem 1.6rem;align-items:center;margin-top:2.2rem;
+        padding-top:1.2rem;border-top:1px solid var(--hairline);font-size:.85rem}
+  .signoff{margin:0}
+  .signoff .heart{color:var(--accent)}
+  /* place slot: width glides to each name's measured width, name fades+rises in */
+  .slot{display:inline-block;overflow:hidden;white-space:nowrap;vertical-align:bottom;
+        font-weight:600;color:var(--ink);transition:width .3s ease-out}
+  .measure{position:absolute;visibility:hidden;white-space:nowrap;font-weight:600;pointer-events:none}
+  .city-in{display:inline-block}
+  @keyframes city-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: no-preference){.city-in{animation:city-in .4s ease}}
 </style>
 </head>
 <body>
@@ -174,8 +187,10 @@
     <a href="/" aria-label="oto home" style="line-height:0">
       <!-- W1 wordmark: ink letters via currentColor, moegi on-air dot -->
       <svg class="wordmark" viewBox="-19 -638 1956 688" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="oto">
+        <g id="wm">
         <path fill="currentColor" d="M21.0 -250.0Q21.0 -369.0 99.5 -440.0Q178.0 -511.0 307.0 -511.0Q436.0 -511.0 514.5 -440.0Q593.0 -369.0 593.0 -250.0Q593.0 -132.0 514.5 -61.0Q436.0 10.0 307.0 10.0Q178.0 10.0 99.5 -61.0Q21.0 -132.0 21.0 -250.0ZM307.0 -379.0Q232.0 -379.0 201.0 -348.5Q170.0 -318.0 170.0 -250.0Q170.0 -183.0 201.0 -153.0Q232.0 -123.0 307.0 -123.0Q382.0 -123.0 413.0 -153.0Q444.0 -183.0 444.0 -250.0Q444.0 -317.0 412.5 -348.0Q381.0 -379.0 307.0 -379.0Z M977.0 0.0H853.0Q665.0 0.0 665.0 -181.0V-377.0H586.0V-501.0H665.0V-598.0H815.0V-501.0H977.0V-377.0H815.0V-198.0Q815.0 -161.0 830.5 -148.0Q846.0 -135.0 887.0 -135.0H977.0Z M984.0 -250.0Q984.0 -369.0 1062.5 -440.0Q1141.0 -511.0 1270.0 -511.0Q1399.0 -511.0 1477.5 -440.0Q1556.0 -369.0 1556.0 -250.0Q1556.0 -132.0 1477.5 -61.0Q1399.0 10.0 1270.0 10.0Q1141.0 10.0 1062.5 -61.0Q984.0 -132.0 984.0 -250.0ZM1270.0 -379.0Q1195.0 -379.0 1164.0 -348.5Q1133.0 -318.0 1133.0 -250.0Q1133.0 -183.0 1164.0 -153.0Q1195.0 -123.0 1270.0 -123.0Q1345.0 -123.0 1376.0 -153.0Q1407.0 -183.0 1407.0 -250.0Q1407.0 -317.0 1375.5 -348.0Q1344.0 -379.0 1270.0 -379.0Z"/>
         <circle fill="var(--accent)" cx="1787.0" cy="-130.0" r="110.0"/>
+        </g>
       </svg>
     </a>
     <nav>
@@ -384,11 +399,23 @@
 
 <footer>
   <div class="wrap">
-    <div class="row">
+    <div class="foot-top">
+      <div class="foot-brand">
+        <svg class="wordmark" viewBox="-19 -638 1956 688" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="oto"><use href="#wm"/></svg>
+        <p class="signoff">Built with <span class="heart">♥</span> from
+          <span class="slot" id="placeSlot"><span class="city-in">Mexico City</span></span><span class="measure" id="placeMeasure" aria-hidden="true"></span>
+        </p>
+      </div>
+      <nav class="foot-nav">
+        <a href="#how">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+      </nav>
+    </div>
+    <div class="foot-bottom">
       <span>© 2026 oto — Anything, read aloud.</span>
       <a href="mailto:support@oto.audio">support@oto.audio</a>
-      <a href="/terms">Terms</a>
-      <a href="/privacy">Privacy</a>
     </div>
   </div>
 </footer>
@@ -412,6 +439,36 @@
         .then(function (d) { if (current !== btn) return; player.src = d.url; return player.play() })
         .catch(function () { if (current === btn) clear() })
     })
+  })
+})();
+
+// Footer sign-off ticker: the slot's width glides to each place's real
+// rendered width, so the sentence keeps one normal space and never reflows.
+(function () {
+  var PLACES = ['Mexico City', 'Oaxaca', 'Puerto Escondido', 'Coyoacán', 'San Francisco',
+    'Seattle', 'Portland', 'Bend', 'Salt Lake City', 'Yosemite', 'Big Sur', 'Zion',
+    'Tokyo', 'Kyoto', 'Nagano', 'Furano']
+  var TICK_MS = 2500
+  var slot = document.getElementById('placeSlot')
+  var measure = document.getElementById('placeMeasure')
+  if (!slot || !measure) return
+  var i = 0
+  function render(place) {
+    measure.textContent = place
+    // ceil the fractional width: offsetWidth rounds down and overflow:hidden
+    // would shave a sliver off the last glyph
+    slot.style.width = Math.ceil(measure.getBoundingClientRect().width) + 'px'
+    var el = document.createElement('span') // fresh node → entry animation replays
+    el.className = 'city-in'
+    el.textContent = place
+    slot.replaceChildren(el)
+  }
+  // Measure only once the real faces are loaded — a fallback-font width would
+  // be wrong. Until then the slot stays auto-width.
+  var ready = document.fonts ? document.fonts.ready : Promise.resolve()
+  ready.then(function () {
+    render(PLACES[0])
+    setInterval(function () { i = (i + 1) % PLACES.length; render(PLACES[i]) }, TICK_MS)
   })
 })()
 </script>

@@ -57,7 +57,7 @@ struct LibraryView: View {
     // Unlimited reads as an exponent on the wordmark — oto∞, like n².
     // navigationTitle strips rich-text styling, so the styled mark lives in the
     // nav bar as a leading toolbar item (the Apple Music/News branded-header
-    // pattern), sized down to fit the inline bar without clipping.
+    // pattern).
     private var unlimited: Bool { model.usage?.unlimited == true }
 
     private var wordmark: some View {
@@ -66,6 +66,9 @@ struct LibraryView: View {
                 .font(.system(size: 16, weight: .bold))
                 .baselineOffset(10)
                 .foregroundStyle(Theme.accent))
+            // iOS 26 proposes bar items a width sized for the default toolbar
+            // font, so our larger mark truncates to "o…" — take the ideal size.
+            .fixedSize()
             .accessibilityLabel(unlimited ? "oto — unlimited generation" : "oto")
             .accessibilityAddTraits(.isHeader)
     }
