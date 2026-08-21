@@ -52,6 +52,21 @@ export async function presignAudioUrl(objectKey: string): Promise<string> {
   )
 }
 
+/** Avatar upload — key convention: avatars/{userId}.jpg */
+export async function putAvatar(key: string, bytes: Buffer): Promise<void> {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: config.BUCKET_NAME,
+      Key: key,
+      Body: bytes,
+      ContentType: 'image/jpeg',
+    }),
+  )
+}
+
+/** Presigning is object-key generic; the audio helper works for avatars too. */
+export const presignAvatarUrl = presignAudioUrl
+
 export async function deleteAudioObject(objectKey: string): Promise<void> {
   await s3.send(
     new DeleteObjectCommand({ Bucket: config.BUCKET_NAME, Key: objectKey }),

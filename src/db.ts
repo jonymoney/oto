@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import { config } from './config.js'
-import type { AudioRecord, AudioStatus, NewAudio } from './types.js'
+import type { AudioRecord, AudioStatus, NewAudio, Visibility } from './types.js'
 
 interface AudioRow {
   id: string
@@ -27,6 +27,7 @@ interface AudioRow {
   slug: string | null
   position_sec: number | null
   played_at: Date | string | null
+  visibility: Visibility
 }
 
 function mapRow(row: AudioRow): AudioRecord {
@@ -63,6 +64,7 @@ function mapRow(row: AudioRow): AudioRecord {
         : row.played_at instanceof Date
           ? row.played_at.toISOString()
           : new Date(row.played_at).toISOString(),
+    visibility: row.visibility,
   }
 }
 
@@ -136,7 +138,41 @@ export async function initDb(): Promise<void> {
       add column if not exists tags text[] not null default '{}',
       add column if not exists slug text,
       add column if not exists position_sec double precision,
-      add column if not exists played_at timestamptz
+      add column if not exists played_at timestamptz,
+      add column if not exists visibility text not null default 'private'
+  `)
+  // Social graph + saves + collections (user ids match audios.user_id: uuid).
+  await pool.query(`
+    create table if not exists follows (
+      follower_id uuid not null,
+      followee_id uuid not null,
+      created_at  timestamptz not null default now(),
+      primary key (follower_id, followee_id)
+    )
+  `)
+  await pool.query(`
+    create table if not exists saved_audios (
+      user_id    uuid not null,
+      audio_id   uuid not null references audios(id) on delete cascade,
+      created_at timestamptz not null default now(),
+      primary key (user_id, audio_id)
+    )
+  `)
+  await pool.query(`
+    create table if not exists collections (
+      id         uuid primary key default gen_random_uuid(),
+      user_id    uuid not null,
+      name       text not null,
+      created_at timestamptz not null default now()
+    )
+  `)
+  await pool.query(`
+    create table if not exists collection_items (
+      collection_id uuid not null references collections(id) on delete cascade,
+      audio_id      uuid not null references audios(id) on delete cascade,
+      added_at      timestamptz not null default now(),
+      primary key (collection_id, audio_id)
+    )
   `)
   // Short share links: slug unique per user (nulls exempt — lazily backfilled).
   await pool.query(`
@@ -225,7 +261,30 @@ export async function closeDb(): Promise<void> {
 }
 
 const COLUMNS =
-  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at'
+  'id, user_id, text_hash, text, title, summary, emoji, language, mood, tags, voice, model, format, object_key, duration_sec, char_count, created_at, status, chunks_total, chunks_done, error_message, slug, position_sec, played_at, visibility'
+
+/** COLUMNS qualified with a table alias, for joined queries. */
+const qcols = (t: string) =>
+  COLUMNS.split(', ')
+    .map((c) => `${t}.${c}`)
+    .join(', ')
+
+export const VISIBILITIES: readonly Visibility[] = ['private', 'followers', 'friends', 'public']
+
+/**
+ * THE visibility rule, in one place: which visibilities of an owner's audios a
+ * given viewer may browse/list. 'private' is owner-only (callers special-case
+ * owner === viewer by passing all of VISIBILITIES).
+ */
+export function allowedVisibilities(
+  viewerFollowsOwner: boolean,
+  ownerFollowsViewer: boolean,
+): Visibility[] {
+  const vis: Visibility[] = ['public']
+  if (viewerFollowsOwner) vis.push('followers')
+  if (viewerFollowsOwner && ownerFollowsViewer) vis.push('friends')
+  return vis
+}
 
 export const audioRepo = {
   async findByHash(userId: string, textHash: string): Promise<AudioRecord | null> {
@@ -284,9 +343,16 @@ export const audioRepo = {
     return { rec: existing, created: false }
   },
 
+  /**
+   * Single choke point for "can this user load this audio": their own rows,
+   * plus any audio they have SAVED (so saved items play like owned ones).
+   */
   async getById(userId: string, id: string): Promise<AudioRecord | null> {
     const { rows } = await pool.query<AudioRow>(
-      `select ${COLUMNS} from audios where user_id = $1 and id = $2`,
+      `select ${COLUMNS} from audios
+        where id = $2
+          and (user_id = $1
+               or exists (select 1 from saved_audios s where s.user_id = $1 and s.audio_id = audios.id))`,
       [userId, id],
     )
     return rows[0] ? mapRow(rows[0]) : null
@@ -360,6 +426,95 @@ export const audioRepo = {
       [userId, audioId, positionSec],
     )
     return (rowCount ?? 0) > 0
+  },
+
+  /** Owner-scoped visibility change; returns the updated row or null. */
+  async setVisibility(
+    userId: string,
+    audioId: string,
+    visibility: Visibility,
+  ): Promise<AudioRecord | null> {
+    const { rows } = await pool.query<AudioRow>(
+      `update audios set visibility = $3, updated_at = now()
+        where user_id = $1 and id = $2 returning ${COLUMNS}`,
+      [userId, audioId, visibility],
+    )
+    return rows[0] ? mapRow(rows[0]) : null
+  },
+
+  /** An owner's ready audios restricted to the given visibilities (browse/profile). */
+  async listVisibleByUser(
+    ownerId: string,
+    visibilities: readonly Visibility[],
+    limit = 50,
+    offset = 0,
+  ): Promise<AudioRecord[]> {
+    const { rows } = await pool.query<AudioRow>(
+      `select ${COLUMNS} from audios
+        where user_id = $1 and status = 'ready' and visibility = any($2)
+        order by created_at desc, id desc
+        limit $3 offset $4`,
+      [ownerId, visibilities, Math.min(Math.max(Math.floor(limit), 1), 200), Math.max(offset, 0)],
+    )
+    return rows.map(mapRow)
+  },
+
+  /** Count of an owner's public ready audios (profile header). */
+  async publicCount(ownerId: string): Promise<number> {
+    const { rows } = await pool.query<{ n: number }>(
+      `select count(*)::int as n from audios
+        where user_id = $1 and status = 'ready' and visibility = 'public'`,
+      [ownerId],
+    )
+    return rows[0]?.n ?? 0
+  },
+
+  /** Explore: recent public ready audios across users with a username, excluding the caller. */
+  async listPublicRecent(
+    excludeUserId: string,
+    limit = 30,
+    offset = 0,
+  ): Promise<Array<AudioRecord & { ownerUsername: string }>> {
+    const { rows } = await pool.query<AudioRow & { owner_username: string }>(
+      `select ${qcols('a')}, u.username as owner_username
+         from audios a join users u on u.id = a.user_id
+        where a.visibility = 'public' and a.status = 'ready'
+          and a.user_id <> $1 and u.username is not null
+        order by a.created_at desc, a.id desc
+        limit $2 offset $3`,
+      [excludeUserId, Math.min(Math.max(Math.floor(limit), 1), 200), Math.max(offset, 0)],
+    )
+    return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
+  },
+
+  /** The user's own audios UNION the audios they saved, newest first. */
+  async listWithSaved(
+    userId: string,
+    limit = 50,
+    offset = 0,
+  ): Promise<{ items: AudioRecord[]; total: number }> {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 200)
+    const safeOffset = Math.max(Math.floor(offset), 0)
+    const [listResult, countResult] = await Promise.all([
+      pool.query<AudioRow>(
+        `select ${qcols('a')} from audios a where a.user_id = $1
+         union all
+         select ${qcols('a')} from saved_audios s join audios a on a.id = s.audio_id
+          where s.user_id = $1
+         order by created_at desc, id desc
+         limit $2 offset $3`,
+        [userId, safeLimit, safeOffset],
+      ),
+      pool.query<{ total: string }>(
+        `select ((select count(*) from audios where user_id = $1)
+               + (select count(*) from saved_audios where user_id = $1))::text as total`,
+        [userId],
+      ),
+    ])
+    return {
+      items: listResult.rows.map(mapRow),
+      total: Number(countResult.rows[0]?.total ?? 0),
+    }
   },
 
   async markChunkDone(id: string): Promise<void> {
@@ -441,14 +596,58 @@ export const prefsRepo = {
   },
 }
 
-// Better Auth owns the `users` table; oto only reads it + manages `username`.
+export interface UserProfileRow {
+  id: string
+  email: string
+  username: string | null
+  /** Bucket object key of the avatar (Better Auth `image` column), or null. */
+  image: string | null
+}
+
+// Better Auth owns the `users` table; oto only reads it + manages `username`/`image`.
 export const userRepo = {
-  async get(userId: string): Promise<{ email: string; username: string | null } | null> {
-    const { rows } = await pool.query<{ email: string; username: string | null }>(
-      'select email, username from users where id = $1',
+  async get(userId: string): Promise<UserProfileRow | null> {
+    const { rows } = await pool.query<UserProfileRow>(
+      'select id, email, username, image from users where id = $1',
       [userId],
     )
     return rows[0] ?? null
+  },
+
+  async findByUsername(username: string): Promise<UserProfileRow | null> {
+    const { rows } = await pool.query<UserProfileRow>(
+      'select id, email, username, image from users where username = $1',
+      [username],
+    )
+    return rows[0] ?? null
+  },
+
+  /** Overwrites the username; throws pg 23505 on a collision (caller maps to 409). */
+  async setUsername(userId: string, username: string): Promise<void> {
+    await pool.query('update users set username = $2 where id = $1', [userId, username])
+  },
+
+  /** Stores the avatar's bucket object key in Better Auth's `image` column. */
+  async setImage(userId: string, key: string): Promise<void> {
+    await pool.query('update users set image = $2 where id = $1', [userId, key])
+  },
+
+  /** Username prefix search (people picker). Only users who have a username. */
+  async search(
+    prefix: string,
+    excludeUserId: string,
+    limit = 10,
+  ): Promise<Array<{ username: string; image: string | null }>> {
+    // Strip ilike wildcards so user input can't turn into a pattern.
+    const clean = prefix.replace(/[%_\\]/g, '')
+    if (!clean) return []
+    const { rows } = await pool.query<{ username: string; image: string | null }>(
+      `select username, image from users
+        where username ilike $1 || '%' and id <> $2 and username is not null
+        order by username limit $3`,
+      [clean, excludeUserId, limit],
+    )
+    return rows
   },
 
   /**
@@ -542,4 +741,205 @@ export const usageRepo = {
     )
     return rows[0] ? { userId: rows[0].user_id } : null
   },
+}
+
+export const followRepo = {
+  /** Idempotent. */
+  async follow(followerId: string, followeeId: string): Promise<void> {
+    await pool.query(
+      'insert into follows (follower_id, followee_id) values ($1, $2) on conflict do nothing',
+      [followerId, followeeId],
+    )
+  },
+
+  /** Idempotent. */
+  async unfollow(followerId: string, followeeId: string): Promise<void> {
+    await pool.query('delete from follows where follower_id = $1 and followee_id = $2', [
+      followerId,
+      followeeId,
+    ])
+  },
+
+  async isFollowing(followerId: string, followeeId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      'select 1 from follows where follower_id = $1 and followee_id = $2',
+      [followerId, followeeId],
+    )
+    return rows.length > 0
+  },
+
+  /** Both directions in one query — feeds allowedVisibilities(). */
+  async relation(
+    viewerId: string,
+    ownerId: string,
+  ): Promise<{ viewerFollowsOwner: boolean; ownerFollowsViewer: boolean }> {
+    const { rows } = await pool.query<{ vfo: boolean | null; ofv: boolean | null }>(
+      `select bool_or(follower_id = $1) as vfo, bool_or(follower_id = $2) as ofv
+         from follows
+        where (follower_id = $1 and followee_id = $2)
+           or (follower_id = $2 and followee_id = $1)`,
+      [viewerId, ownerId],
+    )
+    return {
+      viewerFollowsOwner: rows[0]?.vfo ?? false,
+      ownerFollowsViewer: rows[0]?.ofv ?? false,
+    }
+  },
+
+  async isMutual(a: string, b: string): Promise<boolean> {
+    const r = await this.relation(a, b)
+    return r.viewerFollowsOwner && r.ownerFollowsViewer
+  },
+
+  /** Who this user follows (only those with a username), newest follow first. */
+  async following(userId: string): Promise<Array<{ username: string; image: string | null }>> {
+    const { rows } = await pool.query<{ username: string; image: string | null }>(
+      `select u.username, u.image
+         from follows f join users u on u.id = f.followee_id
+        where f.follower_id = $1 and u.username is not null
+        order by f.created_at desc`,
+      [userId],
+    )
+    return rows
+  },
+
+  async counts(userId: string): Promise<{ followers: number; following: number }> {
+    const { rows } = await pool.query<{ followers: number; following: number }>(
+      `select (select count(*) from follows where followee_id = $1)::int as followers,
+              (select count(*) from follows where follower_id = $1)::int as following`,
+      [userId],
+    )
+    return rows[0] ?? { followers: 0, following: 0 }
+  },
+}
+
+export const savedRepo = {
+  /** Idempotent; throws FK violation if the audio doesn't exist. */
+  async save(userId: string, audioId: string): Promise<void> {
+    await pool.query(
+      'insert into saved_audios (user_id, audio_id) values ($1, $2) on conflict do nothing',
+      [userId, audioId],
+    )
+  },
+
+  /** Idempotent. */
+  async unsave(userId: string, audioId: string): Promise<void> {
+    await pool.query('delete from saved_audios where user_id = $1 and audio_id = $2', [
+      userId,
+      audioId,
+    ])
+  },
+
+  async isSaved(userId: string, audioId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      'select 1 from saved_audios where user_id = $1 and audio_id = $2',
+      [userId, audioId],
+    )
+    return rows.length > 0
+  },
+}
+
+export const collectionRepo = {
+  async list(userId: string): Promise<Array<{ id: string; name: string; count: number }>> {
+    const { rows } = await pool.query<{ id: string; name: string; count: number }>(
+      `select c.id, c.name,
+              (select count(*) from collection_items ci where ci.collection_id = c.id)::int as count
+         from collections c
+        where c.user_id = $1
+        order by c.created_at desc`,
+      [userId],
+    )
+    return rows
+  },
+
+  async create(userId: string, name: string): Promise<{ id: string; name: string }> {
+    const { rows } = await pool.query<{ id: string; name: string }>(
+      'insert into collections (user_id, name) values ($1, $2) returning id, name',
+      [userId, name],
+    )
+    return rows[0]
+  },
+
+  /** True if a row was deleted (items cascade). */
+  async delete(userId: string, id: string): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      'delete from collections where user_id = $1 and id = $2',
+      [userId, id],
+    )
+    return (rowCount ?? 0) > 0
+  },
+
+  /** Ownership check for item mutations. */
+  async owns(userId: string, id: string): Promise<boolean> {
+    const { rows } = await pool.query('select 1 from collections where user_id = $1 and id = $2', [
+      userId,
+      id,
+    ])
+    return rows.length > 0
+  },
+
+  /** Idempotent; caller must have verified ownership. FK violation if audio is gone. */
+  async addItem(collectionId: string, audioId: string): Promise<void> {
+    await pool.query(
+      'insert into collection_items (collection_id, audio_id) values ($1, $2) on conflict do nothing',
+      [collectionId, audioId],
+    )
+  },
+
+  async removeItem(collectionId: string, audioId: string): Promise<void> {
+    await pool.query(
+      'delete from collection_items where collection_id = $1 and audio_id = $2',
+      [collectionId, audioId],
+    )
+  },
+
+  /** The collection with its audios, newest-added first. Null if not the caller's. */
+  async get(
+    userId: string,
+    id: string,
+  ): Promise<{ id: string; name: string; items: AudioRecord[] } | null> {
+    const { rows } = await pool.query<{ id: string; name: string }>(
+      'select id, name from collections where user_id = $1 and id = $2',
+      [userId, id],
+    )
+    if (!rows[0]) return null
+    const items = await pool.query<AudioRow>(
+      `select ${qcols('a')} from collection_items ci
+         join audios a on a.id = ci.audio_id
+        where ci.collection_id = $1
+        order by ci.added_at desc`,
+      [id],
+    )
+    return { ...rows[0], items: items.rows.map(mapRow) }
+  },
+}
+
+/**
+ * Deletes ALL app rows for a user in one transaction and returns the deleted
+ * audios' object_key list (caller removes the bucket objects). CONTRACT with
+ * better-auth.ts account deletion — do not rename or change the signature.
+ * Better Auth's own users/sessions/accounts rows are deleted by Better Auth.
+ */
+export async function deleteUserData(userId: string): Promise<string[]> {
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const { rows } = await client.query<{ object_key: string }>(
+      'delete from audios where user_id = $1 returning object_key',
+      [userId],
+    )
+    await client.query('delete from user_prefs where user_id = $1', [userId])
+    await client.query('delete from usage_counters where user_id = $1', [userId])
+    await client.query('delete from follows where follower_id = $1 or followee_id = $1', [userId])
+    await client.query('delete from saved_audios where user_id = $1', [userId])
+    // collection_items cascade; items other users saved from these audios cascade too.
+    await client.query('delete from collections where user_id = $1', [userId])
+    await client.query('commit')
+    return rows.map((r) => r.object_key)
+  } catch (err) {
+    await client.query('rollback')
+    throw err
+  } finally {
+    client.release()
+  }
 }

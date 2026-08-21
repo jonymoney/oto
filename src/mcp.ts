@@ -338,7 +338,26 @@ export function buildServer(): McpServer {
         const prefs = await prefsRepo.get(userId)
         // Pref language fills in missing language metadata (display-only).
         meta.language ??= prefs.language
-        const resolvedVoice = resolveVoice(voice ?? prefs.voice ?? undefined)
+        let resolvedVoice = resolveVoice(voice ?? prefs.voice ?? undefined)
+        // Fish voices are part of oto unlimited — gated at generation time only
+        // (voice previews stay free). Same exemption logic as the quota check.
+        if (
+          providerForVoice(resolvedVoice) === 'fish' &&
+          !(quotaSec === 0 || (await isQuotaExempt(userId, email)))
+        ) {
+          if (voice) {
+            return errorResult(
+              new Error(
+                `The ${resolvedVoice} voice is part of oto unlimited. ` +
+                  `Upgrade at ${config.UPGRADE_URL} — or pick a free voice.`,
+              ),
+            )
+          }
+          // ponytail: pref-set-before-gate fallback — a fish voice saved as a
+          // preference before gating shipped silently uses the default voice
+          // instead of erroring on every generation.
+          resolvedVoice = config.TTS_VOICE
+        }
         const provider: TtsProvider =
           providerForVoice(resolvedVoice) === 'fish' ? 'fish' : config.TTS_PROVIDER
         const model = provider === 'fish' ? config.FISH_MODEL : config.TTS_MODEL

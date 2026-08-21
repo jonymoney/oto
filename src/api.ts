@@ -1,14 +1,24 @@
-import { Router } from 'express'
+import express, { Router } from 'express'
 import type { RequestHandler } from 'express'
-import { audioRepo, usageRepo, prefsRepo } from './db.js'
+import {
+  audioRepo,
+  usageRepo,
+  prefsRepo,
+  userRepo,
+  followRepo,
+  savedRepo,
+  collectionRepo,
+  allowedVisibilities,
+  VISIBILITIES,
+} from './db.js'
 import { VOICES, FISH_VOICES, providerForVoice } from './tts.js'
-import { presignAudioUrl, deleteAudioObject } from './storage.js'
+import { presignAudioUrl, presignAvatarUrl, putAvatar, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
-import { createCheckoutSession } from './billing.js'
+import { createCheckoutSession, createPortalSession } from './billing.js'
 import { previewsRouter } from './previews.js'
-import { usernameFor, ensureSlug, shareUrlFor } from './share.js'
-import type { AudioRecord } from './types.js'
+import { usernameFor, ensureSlug, shareUrlFor, RESERVED_USERNAMES } from './share.js'
+import type { AudioRecord, Visibility } from './types.js'
 
 // REST JSON API for native clients (iOS). Mounts behind the same
 // authMiddleware() as /mcp, so req.auth carries the verified Better Auth user.
@@ -31,8 +41,22 @@ function listItem(rec: AudioRecord) {
     status: rec.status,
     positionSec: rec.positionSec,
     playedAt: rec.playedAt,
+    visibility: rec.visibility,
   }
 }
+
+const avatarUrl = (image: string | null) => (image ? presignAvatarUrl(image) : Promise.resolve(null))
+
+// PUT /me contract: lowercase, 3–24 chars, alnum with inner hyphens.
+const USERNAME_RE = /^[a-z0-9](?:[a-z0-9-]{1,22}[a-z0-9])?$/
+const usernameReason = (u: string): 'invalid' | 'reserved' | null => {
+  if (u.length < 3 || u.length > 24 || !USERNAME_RE.test(u)) return 'invalid'
+  if (RESERVED_USERNAMES.has(u)) return 'reserved'
+  return null
+}
+
+const isUniqueViolation = (err: unknown) =>
+  typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505'
 
 // Presign only when playable; a processing/error row has no object to serve yet.
 async function detail(rec: AudioRecord) {
@@ -58,23 +82,39 @@ export function apiRouter(): Router {
       const userId = userIdFrom({ authInfo: req.auth })
       const limit = Number(req.query.limit ?? 50)
       const offset = Number(req.query.offset ?? 0)
-      const { items, total } = await audioRepo.listByUser(userId, limit, offset)
-      // Lazily backfills username + slugs; username resolved once per request,
-      // slugs sequentially so same-title items can't race each other.
-      const username = items.length ? await usernameFor(userId) : null
+      // Own audios UNIONed with saved ones; owner: null = own, else the owner's
+      // username. Usernames + slugs lazily backfilled — usernames cached per
+      // owner, slugs sequential so same-title items can't race each other.
+      const { items, total } = await audioRepo.listWithSaved(userId, limit, offset)
+      const names = new Map<string, string>()
+      const nameOf = async (uid: string) => {
+        if (!names.has(uid)) names.set(uid, await usernameFor(uid))
+        return names.get(uid)!
+      }
       const out = []
       for (const rec of items) {
-        out.push({ ...listItem(rec), shareUrl: shareUrlFor(username!, await ensureSlug(rec)) })
+        const ownerName = await nameOf(rec.userId)
+        out.push({
+          ...listItem(rec),
+          owner: rec.userId === userId ? null : ownerName,
+          shareUrl: shareUrlFor(ownerName, await ensureSlug(rec)),
+        })
       }
       res.json({ items: out, total })
     }),
   )
 
+  // Own/saved rows resolve as before; any other id also resolves — the id is a
+  // capability (the public /a/:id share page serves the same audio), so an authed
+  // user browsing Explore/profiles can play without saving first.
+  const byIdForViewer = async (userId: string, id: string) =>
+    (await audioRepo.getById(userId, id)) ?? (await audioRepo.getByIdPublic(id))
+
   router.get(
     '/audios/:id',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const rec = await audioRepo.getById(userId, req.params.id)
+      const rec = await byIdForViewer(userId, req.params.id)
       if (!rec) return res.status(404).json({ error: 'Not found' })
       // Flip a dead 'processing' row to 'error' before reporting.
       res.json(await detail(await audioRepo.resolveStale(rec)))
@@ -86,7 +126,7 @@ export function apiRouter(): Router {
     '/audios/:id/url',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const rec = await audioRepo.getById(userId, req.params.id)
+      const rec = await byIdForViewer(userId, req.params.id)
       if (!rec) return res.status(404).json({ error: 'Not found' })
       if (rec.status !== 'ready') return res.status(409).json({ error: `Audio is ${rec.status}` })
       res.json({ audioUrl: await presignAudioUrl(rec.objectKey), expiresIn: config.AUDIO_URL_TTL_SECONDS })
@@ -103,7 +143,11 @@ export function apiRouter(): Router {
         return res.status(400).json({ error: 'positionSec must be a finite number >= 0' })
       }
       const found = await audioRepo.setPosition(userId, req.params.id, positionSec)
-      if (!found) return res.status(404).json({ error: 'Not found' })
+      if (!found) {
+        // Position belongs to the owner's row — for a SAVED audio, no-op.
+        if (await savedRepo.isSaved(userId, req.params.id)) return res.status(204).end()
+        return res.status(404).json({ error: 'Not found' })
+      }
       res.status(204).end()
     }),
   )
@@ -113,7 +157,15 @@ export function apiRouter(): Router {
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
       const rec = await audioRepo.deleteById(userId, req.params.id)
-      if (!rec) return res.status(404).json({ error: 'Not found' })
+      if (!rec) {
+        // Not the caller's own row: if it's one they SAVED, unsave instead of
+        // deleting someone else's audio (iOS swipe-delete hits this path).
+        if (await savedRepo.isSaved(userId, req.params.id)) {
+          await savedRepo.unsave(userId, req.params.id)
+          return res.status(204).end()
+        }
+        return res.status(404).json({ error: 'Not found' })
+      }
       try {
         await deleteAudioObject(rec.objectKey)
       } catch (err) {
@@ -134,7 +186,13 @@ export function apiRouter(): Router {
         usageRepo.isUnlimited(userId),
       ])
       const quotaSec = config.QUOTA_MINUTES * 60
-      res.json({ generatedSec, quotaSec, unlimited: unlimited || quotaSec === 0 })
+      const effectiveUnlimited = unlimited || quotaSec === 0
+      res.json({
+        generatedSec,
+        quotaSec,
+        unlimited: effectiveUnlimited,
+        showUpgrade: config.billingEnabled && !effectiveUnlimited,
+      })
     }),
   )
 
@@ -188,6 +246,329 @@ export function apiRouter(): Router {
       const { userId, email } = authUserFrom({ authInfo: req.auth })
       const url = await createCheckoutSession(userId, email)
       res.json({ url })
+    }),
+  )
+
+  // ── Identity ──────────────────────────────────────────────────────────────
+
+  const mePayload = async (user: { email: string; username: string | null; image: string | null }) => ({
+    email: user.email,
+    username: user.username, // null until derived/claimed — NOT lazily derived here
+    avatarUrl: await avatarUrl(user.image),
+  })
+
+  router.get(
+    '/me',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const user = await userRepo.get(userId)
+      if (!user) return res.status(404).json({ error: 'Not found' })
+      res.json(await mePayload(user))
+    }),
+  )
+
+  router.put(
+    '/me',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const { username } = (req.body ?? {}) as { username?: unknown }
+      if (typeof username !== 'string') return res.status(400).json({ error: 'invalid' })
+      const name = username.toLowerCase()
+      const reason = usernameReason(name)
+      if (reason) return res.status(400).json({ error: reason })
+      try {
+        await userRepo.setUsername(userId, name)
+      } catch (err) {
+        if (isUniqueViolation(err)) return res.status(409).json({ error: 'taken' })
+        throw err
+      }
+      const user = await userRepo.get(userId)
+      if (!user) return res.status(404).json({ error: 'Not found' })
+      res.json(await mePayload(user))
+    }),
+  )
+
+  router.get(
+    '/me/username-available',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const name = String(req.query.u ?? '').toLowerCase()
+      const reason = usernameReason(name)
+      if (reason) return res.json({ available: false, reason })
+      const owner = await userRepo.findByUsername(name)
+      if (owner && owner.id !== userId) return res.json({ available: false, reason: 'taken' })
+      res.json({ available: true })
+    }),
+  )
+
+  router.put(
+    '/me/avatar',
+    express.raw({ type: 'image/*', limit: '5mb' }),
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Send the image bytes as the request body' })
+      }
+      const key = `avatars/${userId}.jpg`
+      await putAvatar(key, req.body)
+      await userRepo.setImage(userId, key)
+      res.json({ avatarUrl: await presignAvatarUrl(key) })
+    }),
+  )
+
+  // ── Visibility ────────────────────────────────────────────────────────────
+
+  router.patch(
+    '/audios/:id',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const { visibility } = (req.body ?? {}) as { visibility?: unknown }
+      if (typeof visibility !== 'string' || !VISIBILITIES.includes(visibility as Visibility)) {
+        return res.status(400).json({ error: `visibility must be one of: ${VISIBILITIES.join(', ')}` })
+      }
+      const rec = await audioRepo.setVisibility(userId, req.params.id, visibility as Visibility)
+      if (!rec) return res.status(404).json({ error: 'Not found' })
+      res.json(await detail(rec))
+    }),
+  )
+
+  // ── Saves ─────────────────────────────────────────────────────────────────
+
+  // Save-by-id is allowed unconditionally (except own audios): the unguessable
+  // id is itself a capability — anyone holding it can already play the audio
+  // via its share link, so gating the save on visibility adds nothing.
+  router.post(
+    '/audios/:id/save',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const rec = await audioRepo.getByIdPublic(req.params.id)
+      if (!rec || rec.status !== 'ready') return res.status(404).json({ error: 'Not found' })
+      if (rec.userId === userId) return res.status(400).json({ error: 'Cannot save your own audio' })
+      await savedRepo.save(userId, rec.id)
+      res.status(204).end()
+    }),
+  )
+
+  router.delete(
+    '/audios/:id/save',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      await savedRepo.unsave(userId, req.params.id)
+      res.status(204).end()
+    }),
+  )
+
+  // ── People ────────────────────────────────────────────────────────────────
+
+  router.get(
+    '/users/search',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const users = await userRepo.search(String(req.query.q ?? ''), userId, 10)
+      res.json({
+        items: await Promise.all(
+          users.map(async (u) => ({ username: u.username, avatarUrl: await avatarUrl(u.image) })),
+        ),
+      })
+    }),
+  )
+
+  router.get(
+    '/users/:username',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const target = await userRepo.findByUsername(req.params.username)
+      if (!target) return res.status(404).json({ error: 'Not found' })
+      const [audios, followCounts, rel] = await Promise.all([
+        audioRepo.publicCount(target.id),
+        followRepo.counts(target.id),
+        followRepo.relation(userId, target.id),
+      ])
+      res.json({
+        username: target.username,
+        avatarUrl: await avatarUrl(target.image),
+        counts: { audios, ...followCounts },
+        youFollow: rel.viewerFollowsOwner,
+        followsYou: rel.ownerFollowsViewer,
+      })
+    }),
+  )
+
+  router.put(
+    '/users/:username/follow',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const target = await userRepo.findByUsername(req.params.username)
+      if (!target) return res.status(404).json({ error: 'Not found' })
+      if (target.id === userId) return res.status(400).json({ error: 'Cannot follow yourself' })
+      await followRepo.follow(userId, target.id)
+      res.status(204).end()
+    }),
+  )
+
+  router.delete(
+    '/users/:username/follow',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const target = await userRepo.findByUsername(req.params.username)
+      if (!target) return res.status(404).json({ error: 'Not found' })
+      if (target.id === userId) return res.status(400).json({ error: 'Cannot follow yourself' })
+      await followRepo.unfollow(userId, target.id)
+      res.status(204).end()
+    }),
+  )
+
+  router.get(
+    '/following',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const users = await followRepo.following(userId)
+      res.json({
+        items: await Promise.all(
+          users.map(async (u) => ({ username: u.username, avatarUrl: await avatarUrl(u.image) })),
+        ),
+      })
+    }),
+  )
+
+  router.get(
+    '/users/:username/audios',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const target = await userRepo.findByUsername(req.params.username)
+      if (!target) return res.status(404).json({ error: 'Not found' })
+      // Relationship computed once; own profile sees everything incl. private.
+      const vis =
+        target.id === userId
+          ? VISIBILITIES
+          : await followRepo
+              .relation(userId, target.id)
+              .then((r) => allowedVisibilities(r.viewerFollowsOwner, r.ownerFollowsViewer))
+      const recs = await audioRepo.listVisibleByUser(target.id, vis, 50, 0)
+      const items = []
+      for (const rec of recs) {
+        items.push({
+          ...listItem(rec),
+          owner: target.username,
+          shareUrl: shareUrlFor(target.username!, await ensureSlug(rec)),
+        })
+      }
+      res.json({ items })
+    }),
+  )
+
+  router.get(
+    '/explore',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const recs = await audioRepo.listPublicRecent(userId, 30, 0)
+      const items = []
+      for (const rec of recs) {
+        items.push({
+          ...listItem(rec),
+          owner: rec.ownerUsername,
+          shareUrl: shareUrlFor(rec.ownerUsername, await ensureSlug(rec)),
+        })
+      }
+      res.json({ items })
+    }),
+  )
+
+  // ── Collections ───────────────────────────────────────────────────────────
+
+  router.get(
+    '/collections',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      res.json({ items: await collectionRepo.list(userId) })
+    }),
+  )
+
+  router.post(
+    '/collections',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const { name } = (req.body ?? {}) as { name?: unknown }
+      const trimmed = typeof name === 'string' ? name.trim() : ''
+      if (trimmed.length < 1 || trimmed.length > 60) {
+        return res.status(400).json({ error: 'name must be 1–60 characters' })
+      }
+      const created = await collectionRepo.create(userId, trimmed)
+      res.json({ ...created, count: 0 })
+    }),
+  )
+
+  router.delete(
+    '/collections/:id',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      if (!(await collectionRepo.delete(userId, req.params.id))) {
+        return res.status(404).json({ error: 'Not found' })
+      }
+      res.status(204).end()
+    }),
+  )
+
+  router.put(
+    '/collections/:id/items/:audioId',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      if (!(await collectionRepo.owns(userId, req.params.id))) {
+        return res.status(404).json({ error: 'Not found' })
+      }
+      try {
+        await collectionRepo.addItem(req.params.id, req.params.audioId)
+      } catch {
+        // FK violation — the audio doesn't exist.
+        return res.status(404).json({ error: 'Audio not found' })
+      }
+      res.status(204).end()
+    }),
+  )
+
+  router.delete(
+    '/collections/:id/items/:audioId',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      if (!(await collectionRepo.owns(userId, req.params.id))) {
+        return res.status(404).json({ error: 'Not found' })
+      }
+      await collectionRepo.removeItem(req.params.id, req.params.audioId)
+      res.status(204).end()
+    }),
+  )
+
+  router.get(
+    '/collections/:id',
+    wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
+      const col = await collectionRepo.get(userId, req.params.id)
+      if (!col) return res.status(404).json({ error: 'Not found' })
+      const names = new Map<string, string>()
+      const nameOf = async (uid: string) => {
+        if (!names.has(uid)) names.set(uid, await usernameFor(uid))
+        return names.get(uid)!
+      }
+      const items = []
+      for (const rec of col.items) {
+        items.push({
+          ...listItem(rec),
+          owner: rec.userId === userId ? null : await nameOf(rec.userId),
+        })
+      }
+      res.json({ id: col.id, name: col.name, items })
+    }),
+  )
+
+  // ── Billing ───────────────────────────────────────────────────────────────
+
+  // Stripe customer portal (manage/cancel the subscription).
+  router.post(
+    '/billing/portal',
+    wrap(async (req, res) => {
+      if (!config.billingEnabled) return res.status(501).json({ error: 'Billing not configured' })
+      const userId = userIdFrom({ authInfo: req.auth })
+      res.json({ url: await createPortalSession(userId) })
     }),
   )
 

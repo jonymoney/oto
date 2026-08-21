@@ -10,6 +10,8 @@ import { toNodeHandler } from 'better-auth/node'
 import { authMiddleware, apiAuthMiddleware, wellKnownRouter } from './auth.js'
 import { auth } from './better-auth.js'
 import { consentRouter } from './consent.js'
+import { legalRouter } from './legal.js'
+import { connectRouter } from './connect.js'
 import { shareRouter, shortShareRouter } from './share.js'
 import { apiRouter } from './api.js'
 import { handleWebhookEvent } from './billing.js'
@@ -74,6 +76,7 @@ const landingHtml = `<!doctype html>
   <p>Text to speech inside your AI chat. Generated once, kept forever.</p>
   <p>Connect it in Claude as a custom connector:<br><code>${config.MCP_SERVER_URL}</code></p>
   <p>Just confirmed your email? Head back to your chat and reconnect — sign-in will pick up where you left off.</p>
+  <p style="font-size:.8rem"><a href="/connect" style="color:#f5a623;text-decoration:none">Connect</a> · <a href="/terms" style="color:#f5a623;text-decoration:none">Terms</a> · <a href="/privacy" style="color:#f5a623;text-decoration:none">Privacy</a></p>
 </main></body></html>`
 app.get('/', (_req, res) => {
   res.type('html').send(landingHtml)
@@ -121,6 +124,8 @@ app.get('/upgrade', (_req, res) => {
 
 app.use(wellKnownRouter())
 app.use(consentRouter())
+app.use(legalRouter())
+app.use(connectRouter())
 
 // Public share pages (/a/:id) — no auth: the unguessable audio UUID is the
 // capability, like a Spotify link. Must stay above the auth-protected routers.

@@ -16,9 +16,12 @@ struct AudioItem: Identifiable, Codable, Hashable {
     let shareUrl: String?
     let positionSec: Double?
     let playedAt: String?
+    // Social: owner username (nil = own audio) and visibility (own audios only).
+    let owner: String?
+    let visibility: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt
+        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility
     }
 
     init(from decoder: Decoder) throws {
@@ -38,6 +41,8 @@ struct AudioItem: Identifiable, Codable, Hashable {
         shareUrl = try c.decodeIfPresent(String.self, forKey: .shareUrl)
         positionSec = try c.decodeIfPresent(Double.self, forKey: .positionSec)
         playedAt = try c.decodeIfPresent(String.self, forKey: .playedAt)
+        owner = try c.decodeIfPresent(String.self, forKey: .owner)
+        visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
     }
 }
 
@@ -112,7 +117,8 @@ enum API {
         return nil
     }
 
-    private static func request(_ path: String, method: String = "GET", auth: Bool = true) -> URLRequest {
+    // Internal (not private) so API+*.swift extension files can build requests.
+    static func request(_ path: String, method: String = "GET", auth: Bool = true) -> URLRequest {
         var req = URLRequest(url: Config.baseURL.appendingPathComponent(path))
         req.httpMethod = method
         // Better Auth rejects Origin-less POSTs (CSRF guard). Native URLSession
@@ -126,7 +132,7 @@ enum API {
         return req
     }
 
-    private static func send(_ req: URLRequest, followRedirects: Bool = true) async throws -> (Data, HTTPURLResponse) {
+    static func send(_ req: URLRequest, followRedirects: Bool = true) async throws -> (Data, HTTPURLResponse) {
         let path = req.url?.path ?? "?"
         do {
             let (data, resp): (Data, URLResponse)
@@ -232,6 +238,7 @@ enum API {
         let generatedSec: Double
         let quotaSec: Double
         let unlimited: Bool
+        let showUpgrade: Bool?
     }
 
     static func usage() async throws -> Usage {

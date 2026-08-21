@@ -1,5 +1,11 @@
 export type AudioStatus = 'processing' | 'ready' | 'error'
 
+/**
+ * Who can DISCOVER this audio in listings (profiles, explore). Share links are
+ * capability URLs and keep working regardless of visibility.
+ */
+export type Visibility = 'private' | 'followers' | 'friends' | 'public'
+
 /** A generated audio, as stored in Postgres. */
 export interface AudioRecord {
   status: AudioStatus
@@ -38,10 +44,15 @@ export interface AudioRecord {
   positionSec: number | null
   /** When the position was last reported. */
   playedAt: string | null
+  /** Listing visibility ('private' by default; links always work). */
+  visibility: Visibility
 }
 
 /** Fields required to insert a new audio row (slug is assigned post-insert). */
-export type NewAudio = Omit<AudioRecord, 'id' | 'createdAt' | 'slug' | 'positionSec' | 'playedAt'>
+export type NewAudio = Omit<
+  AudioRecord,
+  'id' | 'createdAt' | 'slug' | 'positionSec' | 'playedAt' | 'visibility'
+>
 
 /** structuredContent payload for the player UI after text_to_speech. */
 export type PlayerPayload = {

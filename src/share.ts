@@ -3,7 +3,7 @@ import { Router } from 'express'
 import type { RequestHandler } from 'express'
 import { Resvg } from '@resvg/resvg-js'
 import { audioRepo, userRepo } from './db.js'
-import { presignAudioUrl } from './storage.js'
+import { presignAudioUrl, presignAvatarUrl } from './storage.js'
 import { config } from './config.js'
 import type { AudioRecord } from './types.js'
 
@@ -71,9 +71,10 @@ function meshSvg(id: string, mood: string | null, w: number, h: number): string 
 // ── Short links: oto.audio/{username}/{slug} ────────────────────────────────
 
 // Existing top-level routes — never assignable as usernames.
-const RESERVED_USERNAMES = new Set([
+export const RESERVED_USERNAMES = new Set([
   'api', 'mcp', 'a', 'login', 'oauth', 'consent', 'upgrade', 'health', 'auth',
   'billing', 'icon.png', 'favicon.ico', 'robots.txt', '.well-known', 'well-known',
+  'terms', 'privacy', 'connect', 'explore', 'me', 'users', 'collections', 'avatars',
 ])
 
 const rand = (n: number) => randomBytes(n).toString('hex').slice(0, n)
@@ -228,7 +229,9 @@ bar.onclick = e => {
 </script></body></html>`
 }
 
-const notFoundPage = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+const notFoundPage = (
+  message = "This audio doesn't exist, or isn't ready yet.",
+) => `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found — oto</title>
 <link rel="icon" type="image/png" href="/icon.png">
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f1ea;color:#16130f;
@@ -236,7 +239,7 @@ font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}main{paddin
 h1{font-size:1.2rem}.led{color:#f5a623}p{color:#6f6555;line-height:1.6;font-size:.9rem}
 a{color:#16130f;font-weight:700;text-decoration:none}a:hover{color:#f5a623}</style>
 </head><body><main><h1><span class="led">◉</span> oto</h1>
-<p>This audio doesn't exist, or isn't ready yet.</p><p><a href="/">Made with ◉ oto</a></p>
+<p>${esc(message)}</p><p><a href="/">Made with ◉ oto</a></p>
 </main></body></html>`
 
 // Express 4 swallows async throws — wrap so rejections hit the error handler.
@@ -263,7 +266,7 @@ export function shareRouter(): Router {
     '/a/:id',
     wrap(async (req, res) => {
       const rec = await readyAudio(req.params.id)
-      if (!rec) return res.status(404).type('html').send(notFoundPage)
+      if (!rec) return res.status(404).type('html').send(notFoundPage())
       const url = shareUrlFor(await usernameFor(rec.userId), await ensureSlug(rec))
       res.redirect(301, url)
     }),
@@ -307,14 +310,92 @@ async function readyBySlug(username: string, slug: string): Promise<AudioRecord 
   return rec && rec.status === 'ready' ? rec : null
 }
 
+// ── Public profile page (/:username) ────────────────────────────────────────
+
+function profilePage(
+  username: string,
+  avatarUrl: string | null,
+  rows: Array<{ rec: AudioRecord; slug: string }>,
+): string {
+  const name = esc(username)
+  // Deterministic avatar tint from the username — same hashing as the covers.
+  const tint = palette(username, null)
+  const avatar = avatarUrl
+    ? `<img class="ava" src="${esc(avatarUrl)}" alt="">`
+    : `<div class="ava ini" style="background:${tint[0]}">${esc(username[0]?.toUpperCase() ?? '?')}</div>`
+  const list = rows
+    .map(
+      ({ rec, slug }) => `<a class="row" href="${esc(shareUrlFor(username, slug))}">
+<span class="thumb">${meshSvg(rec.id, rec.mood, 44, 44)}${rec.emoji ? `<span class="e">${esc(rec.emoji)}</span>` : ''}</span>
+<span class="info"><span class="t">${esc(rec.title)}</span><span class="m">${esc(rec.voice)} · ${fmtDur(rec.durationSec)}</span></span>
+</a>`,
+    )
+    .join('')
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>@${name} — oto</title>
+<meta property="og:title" content="@${name} — oto">
+<meta property="og:type" content="profile">
+<link rel="icon" type="image/png" href="/icon.png">
+<style>
+body{margin:0;min-height:100vh;background:#f4f1ea;color:#16130f;
+font-family:ui-monospace,'SF Mono',Menlo,monospace}
+main{padding:2rem 1.5rem;max-width:26rem;margin:0 auto;box-sizing:border-box}
+.brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:1.4rem;text-align:center}.led{color:#f5a623}
+header{display:flex;align-items:center;gap:1rem;margin-bottom:1.4rem}
+.ava{width:4rem;height:4rem;border-radius:50%;object-fit:cover;flex:none;
+box-shadow:0 4px 14px rgba(22,19,15,.15)}
+.ini{display:grid;place-items:center;color:#fffdf8;font-size:1.6rem;font-weight:700}
+h1{font-size:1.15rem;margin:0;overflow-wrap:anywhere}
+.count{color:#6f6555;font-size:.8rem;margin-top:.25rem}
+.row{display:flex;align-items:center;gap:.8rem;background:#fffdf8;border:1px solid #e3dccc;
+border-radius:14px;padding:.65rem .8rem;margin-bottom:.6rem;text-decoration:none;color:#16130f}
+.row:hover{border-color:#f5a623}
+.thumb{position:relative;flex:none;width:44px;height:44px;border-radius:10px;overflow:hidden}
+.thumb svg{display:block}
+.thumb .e{position:absolute;inset:0;display:grid;place-items:center;font-size:1.2rem;
+text-shadow:0 1px 6px rgba(0,0,0,.25)}
+.info{min-width:0}
+.t{display:block;font-size:.9rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;
+white-space:nowrap}
+.m{display:block;color:#6f6555;font-size:.72rem;margin-top:.15rem}
+footer{margin-top:1.6rem;font-size:.8rem;color:#6f6555;text-align:center}
+footer a{color:#16130f;text-decoration:none;font-weight:700}footer a:hover{color:#f5a623}
+</style></head><body><main>
+<div class="brand"><span class="led">◉</span> oto</div>
+<header>${avatar}<div><h1>@${name}</h1><div class="count">${rows.length} audio${rows.length === 1 ? '' : 's'}</div></div></header>
+${list}
+<footer>Made with <a href="/">◉ oto</a></footer>
+</main></body></html>`
+}
+
 export function shortShareRouter(): Router {
   const router = Router()
+
+  // Public profile: a user's PUBLIC ready audios. Reserved paths never reach
+  // here (mounted last in src/index.ts).
+  router.get(
+    '/:username',
+    wrap(async (req, res) => {
+      const user = await userRepo.findByUsername(req.params.username)
+      const recs = user ? await audioRepo.listVisibleByUser(user.id, ['public'], 50, 0) : []
+      if (!user || recs.length === 0) {
+        return res.status(404).type('html').send(notFoundPage('Nothing public here (yet).'))
+      }
+      // Sequential ensureSlug — same-title rows must not race each other.
+      const rows = []
+      for (const rec of recs) rows.push({ rec, slug: await ensureSlug(rec) })
+      const avatarUrl = user.image ? await presignAvatarUrl(user.image) : null
+      res.setHeader('Cache-Control', 'no-store')
+      res.type('html').send(profilePage(user.username!, avatarUrl, rows))
+    }),
+  )
 
   router.get(
     '/:username/:slug',
     wrap(async (req, res) => {
       const rec = await readyBySlug(req.params.username, req.params.slug)
-      if (!rec) return res.status(404).type('html').send(notFoundPage)
+      if (!rec) return res.status(404).type('html').send(notFoundPage())
       res.setHeader('Cache-Control', 'no-store')
       res.type('html').send(sharePage(rec, req.params.username, req.params.slug))
     }),

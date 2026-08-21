@@ -6,7 +6,8 @@ import {
   magicLink,
   oidcProvider,
 } from 'better-auth/plugins'
-import { pool } from './db.js'
+import { pool, deleteUserData } from './db.js'
+import { deleteAudioObject } from './storage.js'
 import { config } from './config.js'
 import { sendEmail } from './senders.js'
 import { renderEmail, otpCodeBlock } from './email-template.js'
@@ -35,13 +36,36 @@ export const auth = betterAuth({
     // rate limiting falls back to a single shared bucket for everyone.
     ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
   },
-  // Sliding 30-day session (refreshed daily on use).
-  session: { expiresIn: THIRTY_DAYS, updateAge: 60 * 60 * 24 },
+  // Sliding 30-day session (refreshed daily on use). freshAge 0 disables the
+  // "fresh session" gate on sensitive endpoints (delete-user): our users sign
+  // in via magic link / OTP, have no password to re-verify with, and hold
+  // 30-day sessions — the default 1-day freshness window would make deletion
+  // impossible for anyone signed in longer than a day.
+  session: { expiresIn: THIRTY_DAYS, updateAge: 60 * 60 * 24, freshAge: 0 },
   user: {
     modelName: 'users',
     additionalFields: {
       // Server-managed; never accepted from client input.
       role: { type: 'string', required: false, input: false },
+    },
+    // POST /api/auth/delete-user with the bearer session token, body {}.
+    // No sendDeleteAccountVerification: the bearer session IS the proof —
+    // an email round-trip adds nothing for passwordless users, so the user
+    // is deleted immediately.
+    deleteUser: {
+      enabled: true,
+      beforeDelete: async (user) => {
+        // Rows first (FKs reference users), then bucket objects best-effort —
+        // rows are gone, orphaned objects are harmless.
+        const objectKeys = await deleteUserData(user.id)
+        for (const key of [...objectKeys, `avatars/${user.id}.jpg`]) {
+          try {
+            await deleteAudioObject(key)
+          } catch (err) {
+            console.error(`account delete: failed to remove bucket object ${key}:`, err)
+          }
+        }
+      },
     },
   },
   account: { accountLinking: { enabled: true } },

@@ -5,6 +5,8 @@ import AVFoundation
 @Observable
 final class SettingsModel {
     var email: String?
+    var me: API.Me?
+    var usage: API.Usage?
     var prefs: API.Prefs?
     var errorMessage: String?
 
@@ -23,8 +25,14 @@ final class SettingsModel {
         } catch {
             errorMessage = "Couldn't load settings."
         }
-        // Best-effort: the email is display-only, so a failure just hides it.
-        email = try? await API.sessionEmail()
+        // Best-effort: profile + usage are display-only, failures just hide them.
+        me = try? await API.me()
+        usage = try? await API.usage()
+        if let meEmail = me?.email {
+            email = meEmail
+        } else {
+            email = try? await API.sessionEmail()
+        }
     }
 
     func save(voice: String? = nil, language: String? = nil) async {
@@ -40,13 +48,40 @@ struct SettingsView: View {
     @Environment(AuthManager.self) private var auth
     @State private var model = SettingsModel()
     @State private var preview = VoicePreviewPlayer()
+    @Environment(\.openURL) private var openURL
     @State private var confirmingSignOut = false
     @State private var confirmingRemoveDownloads = false
+    @State private var showingPaywall = false
+    @State private var confirmingDelete = false
+    @State private var confirmingDeleteFinal = false
+    @State private var deleting = false
+    @State private var deleteError: String?
+
+    // Fish voices are gated behind unlimited (unless the server hides upgrade UI).
+    private var fishLocked: Bool {
+        guard let u = model.usage else { return false }
+        return !u.unlimited && u.showUpgrade != false
+    }
 
     var body: some View {
         Form {
             Section("Account") {
-                LabeledContent("Signed in as", value: model.email ?? "—")
+                HStack(spacing: 12) {
+                    AvatarPickerView(
+                        avatarUrl: model.me?.avatarUrl,
+                        fallbackText: model.me?.username ?? model.email ?? "oto"
+                    ) { url in
+                        model.me?.avatarUrl = url
+                    }
+                    Text(model.email ?? "—")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink)
+                }
+                NavigationLink {
+                    UsernameEditView(current: model.me?.username) { model.me = $0 }
+                } label: {
+                    LabeledContent("Username", value: model.me?.username.map { "@\($0)" } ?? "Set username")
+                }
             }
             .listRowBackground(Theme.surface)
 
@@ -55,7 +90,14 @@ struct SettingsView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
                             ForEach(prefs.voices, id: \.self) { voice in
-                                VoiceOrbCard(voice: voice, selected: prefs.voice == voice.name, preview: preview) {
+                                let locked = fishLocked && voice.provider == "fish"
+                                VoiceOrbCard(voice: voice, selected: prefs.voice == voice.name, locked: locked, preview: preview) {
+                                    // ponytail: one tap gesture per orb — a locked orb opens
+                                    // the paywall (which has its own previews) instead of playing.
+                                    if locked {
+                                        showingPaywall = true
+                                        return
+                                    }
                                     Task {
                                         if prefs.voice != voice.name { await model.save(voice: voice.name) }
                                         await preview.toggle(
@@ -93,6 +135,29 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.surface)
 
+            if let usage = model.usage, usage.unlimited || usage.showUpgrade == true {
+                Section {
+                    if usage.unlimited {
+                        Button("Manage subscription") { Task { await openBillingPortal() } }
+                            .foregroundStyle(Theme.ink)
+                    } else {
+                        Button {
+                            showingPaywall = true
+                        } label: {
+                            Label("Unlock all voices + unlimited generation", systemImage: "sparkles")
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
+                } header: {
+                    Text("oto unlimited")
+                } footer: {
+                    if usage.unlimited {
+                        Text("Purchased on the web — restore by signing in with the same email.")
+                    }
+                }
+                .listRowBackground(Theme.surface)
+            }
+
             Section("Downloads") {
                 let downloads = Downloads.shared
                 LabeledContent("Downloaded",
@@ -102,14 +167,37 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.surface)
 
+            Section("Connect") {
+                NavigationLink("How to connect your AI") { ConnectGuideView() }
+            }
+            .listRowBackground(Theme.surface)
+
             Section("About") {
                 LabeledContent("Version", value: appVersion)
+                Link("Terms", destination: URL(string: "https://oto.audio/terms")!)
+                    .foregroundStyle(Theme.ink)
+                Link("Privacy", destination: URL(string: "https://oto.audio/privacy")!)
+                    .foregroundStyle(Theme.ink)
             }
             .listRowBackground(Theme.surface)
 
             Section {
                 Button("Sign out", role: .destructive) { confirmingSignOut = true }
                     .frame(maxWidth: .infinity)
+            }
+            .listRowBackground(Theme.surface)
+
+            Section {
+                Button(role: .destructive) {
+                    confirmingDelete = true
+                } label: {
+                    if deleting {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("Delete account").frame(maxWidth: .infinity)
+                    }
+                }
+                .disabled(deleting)
             }
             .listRowBackground(Theme.surface)
         }
@@ -130,6 +218,27 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Audios stay in your library and can be downloaded again.")
+        }
+        .sheet(isPresented: $showingPaywall) { PaywallView() }
+        .confirmationDialog("Delete account?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Continue", role: .destructive) { confirmingDeleteFinal = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Deletes your account, all audios and files. This cannot be undone.")
+        }
+        .alert("Are you sure?", isPresented: $confirmingDeleteFinal) {
+            Button("Delete everything", role: .destructive) { Task { await deleteAccount() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This is permanent.")
+        }
+        .alert("Couldn't delete your account", isPresented: Binding(
+            get: { deleteError != nil },
+            set: { if !$0 { deleteError = nil } }
+        )) {
+            Button("OK") {}
+        } message: {
+            Text(deleteError ?? "")
         }
         .overlay(alignment: .bottom) {
             if let err = model.errorMessage {
@@ -157,6 +266,107 @@ struct SettingsView: View {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
+    }
+
+    private func openBillingPortal() async {
+        do {
+            openURL(try await API.billingPortal())
+        } catch {
+            model.errorMessage = "Couldn't open the billing portal."
+        }
+    }
+
+    /// Server deletes the account and revokes the session; locally we only need
+    /// the same teardown as an expired session (wipe + token clear + back to login).
+    private func deleteAccount() async {
+        deleting = true
+        defer { deleting = false }
+        do {
+            try await API.deleteAccount()
+            auth.sessionExpired()
+        } catch {
+            if case let APIError.server(m) = error {
+                deleteError = m
+            } else {
+                deleteError = "Check your connection and try again."
+            }
+        }
+    }
+}
+
+// MARK: - Connect guide
+
+private struct ConnectGuideView: View {
+    @State private var copied: String?
+
+    private static let mcpURL = "https://oto.audio/mcp"
+    private static let claudeCodeCmd = "claude mcp add --transport http oto https://oto.audio/mcp"
+
+    var body: some View {
+        Form {
+            Section {
+                copyRow(Self.mcpURL)
+            } header: {
+                Text("MCP server")
+            } footer: {
+                Text("One URL — any MCP-capable AI can connect to it. Tap to copy.")
+            }
+            .listRowBackground(Theme.surface)
+
+            Section("Claude") {
+                step(1, "Open claude.ai → Settings → Connectors")
+                step(2, "Add a custom connector with the URL above")
+                step(3, "Ask Claude to read anything aloud")
+            }
+            .listRowBackground(Theme.surface)
+
+            Section("Claude Code") {
+                copyRow(Self.claudeCodeCmd)
+                    .font(.system(.footnote, design: .monospaced))
+            }
+            .listRowBackground(Theme.surface)
+
+            Section {
+                Link("Full guide", destination: URL(string: "https://oto.audio/connect")!)
+                    .foregroundStyle(Theme.accent)
+            }
+            .listRowBackground(Theme.surface)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle("Connect your AI")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func copyRow(_ text: String) -> some View {
+        Button {
+            UIPasteboard.general.string = text
+            copied = text
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                if copied == text { copied = nil }
+            }
+        } label: {
+            HStack {
+                Text(text)
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                if copied == text {
+                    Text("Copied").font(.caption).foregroundStyle(Theme.accent)
+                } else {
+                    Image(systemName: "doc.on.doc").foregroundStyle(Theme.ink2)
+                }
+            }
+        }
+    }
+
+    private func step(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(n)").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
+            Text(text).foregroundStyle(Theme.ink)
+        }
     }
 }
 
@@ -215,6 +425,7 @@ final class VoicePreviewPlayer {
 private struct VoiceOrbCard: View {
     let voice: API.Voice
     let selected: Bool
+    var locked: Bool = false
     let preview: VoicePreviewPlayer
     let tap: () -> Void
 
@@ -243,6 +454,16 @@ private struct VoiceOrbCard: View {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(selected ? Theme.accent : .clear, lineWidth: 1.5)
             )
+            .overlay(alignment: .topTrailing) {
+                if locked {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.ink2)
+                        .padding(5)
+                        .background(Theme.surface, in: Circle())
+                        .padding(6)
+                }
+            }
         }
         .buttonStyle(.plain)
     }

@@ -1,0 +1,381 @@
+import SwiftUI
+import UIKit
+
+/// First-run gate. The orchestrator wires `if Onboarding.needed { OnboardingView(done:) }`.
+enum Onboarding {
+    static var needed: Bool { !UserDefaults.standard.bool(forKey: "onboardingDone") }
+    static func markDone() { UserDefaults.standard.set(true, forKey: "onboardingDone") }
+}
+
+/// Three-page first-run flow: pick a voice, how it works, connect your AI.
+struct OnboardingView: View {
+    let done: () -> Void
+    init(done: @escaping () -> Void) { self.done = done }
+
+    @State private var page = 0
+    @State private var prefs: API.Prefs?
+    @State private var prefsFailed = false
+    @State private var centeredVoice: API.Voice?
+    @State private var preview = VoicePreviewPlayer()
+    @State private var autoplayTask: Task<Void, Never>?
+    @State private var copied: String?
+
+    private let mcpURL = "https://oto.audio/mcp"
+    private let claudeCodeCmd = "claude mcp add --transport http oto https://oto.audio/mcp"
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TabView(selection: $page) {
+                voicePage.tag(0)
+                explainerPage.tag(1)
+                connectPage.tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            pageDots
+                .padding(.bottom, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg)
+        .overlay(alignment: .topTrailing) {
+            if page < 2 {
+                Button("Skip") { finish() }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.ink2)
+                    .padding(20)
+            }
+        }
+        .tint(Theme.accent)
+        .task { await loadPrefs() }
+        .onChange(of: centeredVoice) { _, voice in
+            autoplayTask?.cancel()
+            guard let voice, page == 0 else { return }
+            // Debounce so we only play once the carousel settles.
+            autoplayTask = Task {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                await play(voice)
+            }
+        }
+        .onChange(of: page) { _, p in
+            if p != 0 {
+                autoplayTask?.cancel()
+                preview.stop()
+            }
+        }
+    }
+
+    private func finish() {
+        autoplayTask?.cancel()
+        preview.stop()
+        Onboarding.markDone()
+        done()
+    }
+
+    private func loadPrefs() async {
+        guard prefs == nil else { return }
+        do {
+            let p = try await API.prefs()
+            prefs = p
+            centeredVoice = p.voices.first { $0.name == p.voice } ?? p.voices.first
+        } catch {
+            prefsFailed = true
+        }
+    }
+
+    private func play(_ voice: API.Voice) async {
+        preview.stop() // toggle() would pause a same-voice replay; stop first so it restarts
+        await preview.toggle(voice: voice.name, provider: voice.provider, language: prefs?.language)
+    }
+
+    // MARK: - Page 1: pick your voice
+
+    private var voicePage: some View {
+        VStack(spacing: 0) {
+            Text("Pick your voice")
+                .font(.largeTitle.bold())
+                .foregroundStyle(Theme.ink)
+                .padding(.top, 72)
+
+            Spacer(minLength: 0)
+
+            if let prefs {
+                voiceCarousel(prefs.voices)
+            } else if prefsFailed {
+                VStack(spacing: 16) {
+                    VoiceOrbView(state: .idle, level: 0, palette: OrbPalettes.palette(for: "alloy"))
+                        .frame(width: 220, height: 220)
+                    Text("You can pick a voice later in Settings.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink2)
+                }
+            } else {
+                ProgressView()
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                let voice = centeredVoice
+                autoplayTask?.cancel()
+                preview.stop()
+                if let voice {
+                    // ponytail: best-effort persist; Settings is the recovery path if it fails
+                    Task { _ = try? await API.updatePrefs(voice: voice.name) }
+                }
+                withAnimation(.spring(duration: 0.35)) { page = 1 }
+            } label: {
+                Text(centeredVoice.map { "Choose \($0.name.capitalized)" } ?? "Continue")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(prefs == nil && !prefsFailed)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func voiceCarousel(_ voices: [API.Voice]) -> some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(voices, id: \.self) { voice in
+                    voiceSlide(voice)
+                        .containerRelativeFrame(.horizontal)
+                        .id(voice)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $centeredVoice)
+        .scrollIndicators(.hidden)
+    }
+
+    private func voiceSlide(_ voice: API.Voice) -> some View {
+        VStack(spacing: 16) {
+            Button {
+                Task { await play(voice) }
+            } label: {
+                slideOrb(voice)
+                    .frame(width: 220, height: 220)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play \(voice.name.capitalized) preview")
+
+            VStack(spacing: 2) {
+                Text(voice.name.capitalized)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
+                Text(providerLabel(voice.provider))
+                    .font(.caption)
+                    .foregroundStyle(Theme.ink2)
+            }
+        }
+    }
+
+    @ViewBuilder private func slideOrb(_ voice: API.Voice) -> some View {
+        let palette = OrbPalettes.palette(for: voice.name)
+        if preview.playingVoice == voice.name {
+            TimelineView(.animation) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                // ponytail: fake speech envelope, same as SettingsView's cards
+                let level = min(1, max(0, 0.55 + 0.25 * sin(t * 24) + 0.2 * sin(t * 4.4 + 1.3)))
+                VoiceOrbView(state: .speaking, level: level, palette: palette)
+            }
+        } else {
+            VoiceOrbView(
+                state: preview.loadingVoice == voice.name ? .thinking : .idle,
+                level: 0,
+                palette: palette
+            )
+        }
+    }
+
+    private func providerLabel(_ provider: String) -> String {
+        switch provider {
+        case "openai": return "OpenAI"
+        case "fish": return "Fish Audio"
+        default: return provider.capitalized
+        }
+    }
+
+    // MARK: - Page 2: how audios are made
+
+    private var explainerPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("How audios are made")
+                .font(.largeTitle.bold())
+                .foregroundStyle(Theme.ink)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 72)
+
+            Spacer()
+
+            VStack(alignment: .leading, spacing: 36) {
+                explainerRow("text.bubble", "Ask your AI to read anything")
+                explainerRow("waveform", "oto turns it into audio with your voice")
+                explainerRow("play.circle", "It lands here, ready to play — anywhere")
+            }
+            .padding(.horizontal, 32)
+
+            Spacer()
+
+            Button {
+                withAnimation(.spring(duration: 0.35)) { page = 2 }
+            } label: {
+                Text("Next")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func explainerRow(_ symbol: String, _ text: String) -> some View {
+        HStack(spacing: 18) {
+            Image(systemName: symbol)
+                .font(.title2)
+                .foregroundStyle(Theme.accent)
+                .frame(width: 48, height: 48)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
+            Text(text)
+                .font(.body)
+                .foregroundStyle(Theme.ink)
+        }
+    }
+
+    // MARK: - Page 3: connect your AI
+
+    private var connectPage: some View {
+        VStack(spacing: 0) {
+            Text("Connect your AI")
+                .font(.largeTitle.bold())
+                .foregroundStyle(Theme.ink)
+                .padding(.top, 72)
+
+            Spacer(minLength: 16)
+
+            VStack(spacing: 16) {
+                copyChip(mcpURL)
+
+                instructionCard("bubble.left.and.bubble.right", "Claude") {
+                    Text("Settings → Connectors → Add custom connector → paste the URL")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
+                }
+
+                instructionCard("terminal", "Claude Code") {
+                    Button {
+                        copy(claudeCodeCmd)
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(claudeCodeCmd)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(Theme.ink2)
+                                .multilineTextAlignment(.leading)
+                            Image(systemName: copied == claudeCodeCmd ? "checkmark" : "doc.on.doc")
+                                .font(.caption)
+                                .foregroundStyle(copied == claudeCodeCmd ? Theme.accent : Theme.ink3)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy Claude Code command")
+                }
+
+                Link("Full guide", destination: URL(string: "https://oto.audio/connect")!)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.accent)
+            }
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 16)
+
+            Button {
+                finish()
+            } label: {
+                Text("Start listening")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func copyChip(_ text: String) -> some View {
+        Button {
+            copy(text)
+        } label: {
+            HStack(spacing: 10) {
+                Text(text)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if copied == text {
+                    Label("Copied", systemImage: "checkmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                } else {
+                    Image(systemName: "doc.on.doc")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink3)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.line))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Copy MCP URL")
+    }
+
+    private func instructionCard(_ symbol: String, _ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func copy(_ text: String) {
+        UIPasteboard.general.string = text
+        withAnimation(.spring(duration: 0.25)) { copied = text }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if copied == text {
+                withAnimation(.spring(duration: 0.25)) { copied = nil }
+            }
+        }
+    }
+
+    // MARK: - Page indicator
+
+    private var pageDots: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<3, id: \.self) { i in
+                Capsule()
+                    .fill(i == page ? Theme.accent : Theme.ink3.opacity(0.4))
+                    .frame(width: i == page ? 20 : 7, height: 7)
+                    .animation(.spring(duration: 0.3), value: page)
+            }
+        }
+        .padding(.top, 8)
+    }
+}
+
+#Preview {
+    OnboardingView(done: {})
+}

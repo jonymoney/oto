@@ -1,4 +1,7 @@
-import { Router } from 'express'
+import { json, Router } from 'express'
+import { fromNodeHeaders } from 'better-auth/node'
+import { auth } from './better-auth.js'
+import { pool } from './db.js'
 
 // Better Auth's oidcProvider drives the MCP OAuth handshake and redirects the
 // browser to these two paths (configured in src/better-auth.ts):
@@ -77,7 +80,8 @@ const consentBody = `
 <p><b id="client"></b> is asking to access your oto account:</p>
 <ul id="scopes"></ul>
 <div><button id="deny" class="ghost">Deny</button><button id="approve">Approve</button></div>
-<p id="who" style="font-size:.8rem;opacity:.7"></p>
+<p style="font-size:.8rem;opacity:.7"><span id="who"></span>
+<a href="#" id="switch" style="color:#b8ad9c">Not you? Switch account</a></p>
 <p class="err" id="err"></p>`
 
 const consentScript = `
@@ -112,7 +116,20 @@ const decide = accept => async () => {
   }
 };
 document.getElementById('approve').onclick = decide(true);
-document.getElementById('deny').onclick = decide(false);`
+document.getElementById('deny').onclick = decide(false);
+document.getElementById('switch').onclick = async e => {
+  e.preventDefault();
+  document.getElementById('err').textContent = '';
+  try {
+    const r = await fetch('/oauth/switch', {
+      method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify({ consent_code: params.get('consent_code') }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.url) throw new Error(data.error || 'Switch failed');
+    location.href = data.url;
+  } catch (ex) { document.getElementById('err').textContent = ex.message; }
+};`
 
 export function consentRouter(): Router {
   const router = Router()
@@ -130,6 +147,46 @@ export function consentRouter(): Router {
   router.get(['/consent', '/oauth/consent'], (_req, res) => {
     guard(res)
     res.type('html').send(page('authorize', consentBody, consentScript))
+  })
+  // "Not you?" — sign the current browser session out and restart the original
+  // authorize request. The consent_code is the `identifier` of a Better Auth
+  // `verification` row whose JSON value holds the original authorize params:
+  // { clientId, redirectURI, scope: string[], userId, authTime, requireConsent,
+  //   state, codeChallenge, codeChallengeMethod, nonce }.
+  // ponytail: internal Better Auth shape, pinned at better-auth 1.6.26 — re-check on upgrade.
+  router.post('/oauth/switch', json(), async (req, res) => {
+    try {
+      const code = req.body?.consent_code
+      const { rows } = typeof code === 'string' && code
+        ? await pool.query(
+            'select value from verification where identifier = $1 and "expiresAt" > now()',
+            [code],
+          )
+        : { rows: [] }
+      if (!rows[0]) {
+        res.status(404).json({ error: 'Unknown or expired consent code' })
+        return
+      }
+      const v = JSON.parse(rows[0].value)
+      const p = new URLSearchParams({
+        client_id: v.clientId,
+        redirect_uri: v.redirectURI,
+        response_type: 'code',
+        scope: Array.isArray(v.scope) ? v.scope.join(' ') : v.scope,
+      })
+      if (v.state) p.set('state', v.state)
+      if (v.codeChallenge) p.set('code_challenge', v.codeChallenge)
+      if (v.codeChallengeMethod) p.set('code_challenge_method', v.codeChallengeMethod)
+      if (v.nonce) p.set('nonce', v.nonce)
+      const { headers } = await auth.api.signOut({
+        headers: fromNodeHeaders(req.headers),
+        returnHeaders: true,
+      })
+      for (const cookie of headers.getSetCookie()) res.append('Set-Cookie', cookie)
+      res.json({ url: '/api/auth/oauth2/authorize?' + p.toString() })
+    } catch {
+      res.status(500).json({ error: 'Switch failed' })
+    }
   })
   return router
 }

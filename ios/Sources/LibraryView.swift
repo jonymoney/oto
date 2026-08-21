@@ -5,6 +5,7 @@ import SwiftUI
 final class LibraryModel {
     var items: [AudioItem] = []
     var usage: API.Usage?
+    var collections: [API.Collection] = []
     var loading = false
     var errorMessage: String?
 
@@ -32,6 +33,9 @@ final class LibraryModel {
         } catch {
             usage = nil
         }
+        // Collections feed the "Add to Collection" context menu — best-effort,
+        // keep the stale list on failure.
+        if let c = try? await API.collections() { collections = c }
         loading = false
     }
 }
@@ -41,6 +45,8 @@ struct LibraryView: View {
     @Environment(PlayerModel.self) private var player
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = LibraryModel()
+    @State private var newCollectionFor: AudioItem?
+    @State private var newCollectionName = ""
 
     /// Poll while something is still generating and the app is frontmost.
     private var isPolling: Bool {
@@ -49,22 +55,17 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if let usage = model.usage {
-                    UsageMeter(usage: usage)
-                }
-                content
-            }
-            .background(Theme.bg)
-            .navigationTitle("oto")
+            content
+                .background(Theme.bg)
+                .navigationTitle("oto")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
-                        SettingsView()
+                        CollectionsView()
                     } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "folder")
                     }
-                    .accessibilityLabel("Settings")
+                    .accessibilityLabel("Collections")
                 }
             }
             .refreshable { await model.load(auth: auth) }
@@ -85,6 +86,26 @@ struct LibraryView: View {
                     Text(err).font(.footnote).foregroundStyle(Theme.danger).padding()
                 }
             }
+            .alert("New collection", isPresented: Binding(
+                get: { newCollectionFor != nil },
+                set: { if !$0 { newCollectionFor = nil } }
+            )) {
+                TextField("Name", text: $newCollectionName)
+                Button("Create") {
+                    let item = newCollectionFor
+                    let name = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    newCollectionFor = nil
+                    newCollectionName = ""
+                    guard let item, (1...60).contains(name.count) else { return }
+                    Task {
+                        if let c = try? await API.createCollection(name: name) {
+                            try? await API.addToCollection(id: c.id, audioId: item.id)
+                            await model.load(auth: auth)
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) { newCollectionName = "" }
+            }
         }
     }
 
@@ -94,6 +115,11 @@ struct LibraryView: View {
         } else if model.items.isEmpty {
             // ScrollView host so pull-to-refresh works in empty/error states too.
             ScrollView {
+                // Meter lives in the scroll content (not pinned above it) so the
+                // large nav title collapses against it correctly.
+                if let usage = model.usage {
+                    UsageMeter(usage: usage)
+                }
                 Group {
                     if model.errorMessage != nil {
                         ContentUnavailableView {
@@ -113,6 +139,16 @@ struct LibraryView: View {
             }
         } else {
             List {
+                // Regular (non-pinned) first row: previously a fixed header above
+                // the List, which overlapped the collapsing "oto" large title.
+                if let usage = model.usage {
+                    Section {
+                        UsageMeter(usage: usage)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                }
                 if !continueItems.isEmpty {
                     Section {
                         ForEach(continueItems) { row(for: $0, inProgress: true) }
@@ -154,11 +190,16 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(item.title).lineLimit(1).foregroundStyle(Theme.ink)
-                        if !inProgress, item.playedAt == nil, item.status == "ready" {
+                        // NEW only makes sense for own audios — saved items carry
+                        // the owner's playedAt semantics.
+                        if !inProgress, item.owner == nil, item.playedAt == nil, item.status == "ready" {
                             Text("NEW")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(Theme.accent)
                         }
+                    }
+                    if let owner = item.owner {
+                        Text("@\(owner)").font(.caption2).foregroundStyle(Theme.ink2)
                     }
                     if let s = item.summary, !s.isEmpty {
                         Text(s).lineLimit(1).font(.caption).foregroundStyle(Theme.ink2)
@@ -201,6 +242,10 @@ struct LibraryView: View {
         .buttonStyle(.plain)
         .listRowBackground(Theme.surface)
         .contextMenu {
+            if item.owner == nil, item.status == "ready" {
+                visibilityMenu(for: item)
+                addToCollectionMenu(for: item)
+            }
             if Downloads.shared.isDownloaded(item.id) {
                 Button("Remove download", systemImage: "trash", role: .destructive) {
                     Downloads.shared.remove(item.id)
@@ -212,7 +257,16 @@ struct LibraryView: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if Downloads.shared.isDownloaded(item.id) {
+            if item.owner != nil {
+                // Saved from someone else — un-save, don't delete.
+                Button("Remove", systemImage: "bookmark.slash") {
+                    Task {
+                        try? await API.removeSavedAudio(id: item.id)
+                        await model.load(auth: auth)
+                    }
+                }
+                .tint(Theme.ink3)
+            } else if Downloads.shared.isDownloaded(item.id) {
                 Button("Remove", role: .destructive) {
                     Downloads.shared.remove(item.id)
                 }
@@ -224,6 +278,42 @@ struct LibraryView: View {
             }
         }
     }
+
+    @ViewBuilder private func visibilityMenu(for item: AudioItem) -> some View {
+        let current = item.visibility ?? "private"
+        Menu("Visibility") {
+            ForEach(["private", "followers", "friends", "public"], id: \.self) { v in
+                Button {
+                    guard v != current else { return }
+                    Task {
+                        try? await API.setVisibility(audioId: item.id, v)
+                        await model.load(auth: auth)
+                    }
+                } label: {
+                    if v == current {
+                        Label(v.capitalized, systemImage: "checkmark")
+                    } else {
+                        Text(v.capitalized)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func addToCollectionMenu(for item: AudioItem) -> some View {
+        Menu("Add to Collection") {
+            ForEach(model.collections) { c in
+                Button(c.name) {
+                    Task {
+                        try? await API.addToCollection(id: c.id, audioId: item.id)
+                        await model.load(auth: auth)
+                    }
+                }
+            }
+            if !model.collections.isEmpty { Divider() }
+            Button("New collection…") { newCollectionFor = item }
+        }
+    }
 }
 
 /// Read-only generation-usage meter shown atop the library. Generation happens
@@ -231,6 +321,7 @@ struct LibraryView: View {
 struct UsageMeter: View {
     let usage: API.Usage
     @Environment(\.openURL) private var openURL
+    @State private var showPaywall = false
 
     private var atLimit: Bool { usage.generatedSec >= usage.quotaSec }
 
@@ -247,11 +338,15 @@ struct UsageMeter: View {
                         .foregroundStyle(atLimit ? Theme.danger : Theme.ink)
                     Spacer()
                     Button("Upgrade") {
-                        Task {
-                            // App users are already signed in — go straight to
-                            // Stripe. Fall back to the web page if billing is off.
-                            if let url = try? await API.checkout() { openURL(url) }
-                            else { openURL(URL(string: "https://oto.audio/upgrade")!) }
+                        if usage.showUpgrade == true {
+                            showPaywall = true
+                        } else {
+                            Task {
+                                // App users are already signed in — go straight to
+                                // Stripe. Fall back to the web page if billing is off.
+                                if let url = try? await API.checkout() { openURL(url) }
+                                else { openURL(URL(string: "https://oto.audio/upgrade")!) }
+                            }
                         }
                     }
                         .font(.subheadline.weight(.semibold))
@@ -276,6 +371,7 @@ struct UsageMeter: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .sheet(isPresented: $showPaywall) { PaywallView() }
     }
 
     private func minutes(_ sec: Double) -> String {
