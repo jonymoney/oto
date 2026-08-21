@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "oto-server",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "src/index.ts"],
-      "port": 3001
+      "name": "brand-review",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8123", "--directory", "docs/brand"],
+      "port": 8123
     }
   ]
 }

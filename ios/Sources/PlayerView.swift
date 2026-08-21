@@ -172,6 +172,22 @@ final class PlayerModel {
         if playing { player?.rate = s }
     }
 
+    // Sleep timer: pauses playback when it fires. nil = off.
+    private(set) var sleepMinutes: Int?
+    private var sleepTask: Task<Void, Never>?
+
+    func setSleepTimer(minutes: Int?) {
+        sleepTask?.cancel()
+        sleepMinutes = minutes
+        guard let minutes else { sleepTask = nil; return }
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Double(minutes) * 60))
+            guard !Task.isCancelled, let self else { return }
+            if self.playing { self.toggle() }
+            self.sleepMinutes = nil
+        }
+    }
+
     func stop() {
         teardown()
         requestedItem = nil // dismisses the full player sheet if presented
@@ -185,6 +201,8 @@ final class PlayerModel {
 
     private func teardown() {
         report() // switching/stopping mid-audio → save where we left off
+        sleepTask?.cancel()
+        sleepMinutes = nil
         player?.pause()
         if let t = timeObserver { player?.removeTimeObserver(t) }
         timeObserver = nil
@@ -277,6 +295,15 @@ final class PlayerModel {
     }
 }
 
+// Reports the inline player's bottom edge in the scroll viewport, so the nav
+// bar knows when the controls are out of sight.
+private struct ControlsMaxYKey: PreferenceKey {
+    static let defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
 struct PlayerView: View {
     let item: AudioItem
     @Environment(AuthManager.self) private var auth
@@ -286,6 +313,7 @@ struct PlayerView: View {
     @State private var coverImage = Image(systemName: "waveform")
     @State private var localVisibility: String?             // optimistic PATCH result
     @State private var showDeleteConfirm = false
+    @State private var controlsOffscreen = false            // drives the compact nav header
 
     private static let speeds: [Float] = [1, 1.25, 1.5, 2]
     private static let visibilities: [(value: String, icon: String)] = [
@@ -329,20 +357,7 @@ struct PlayerView: View {
                 }
                 .frame(height: 300)
 
-                VStack(spacing: 8) {
-                    Text(item.title).font(.title2).bold().multilineTextAlignment(.center)
-                        .foregroundStyle(Theme.ink)
-                    Text(authorLabel)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.ink)
-                    Text(clientName.map { "\(item.voice) · made with \($0)" } ?? item.voice)
-                        .font(.caption)
-                        .foregroundStyle(Theme.ink2)
-                    if owner == nil { visibilityMenu }
-                    if let s = summary, !s.isEmpty {
-                        Text(s).font(.subheadline).foregroundStyle(Theme.ink2)
-                            .multilineTextAlignment(.center)
-                    }
+                VStack(alignment: .leading, spacing: 10) {
                     if !tags.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
@@ -358,10 +373,23 @@ struct PlayerView: View {
                             .padding(.horizontal, 2)
                         }
                     }
+                    Text(item.title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Theme.ink)
+                    // Identity row: author is the anchor; visibility rides along.
+                    HStack(spacing: 8) {
+                        InitialsCircle(text: owner ?? "me", size: 22)
+                            .frame(width: 22, height: 22)
+                        Text(authorLabel)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.ink)
+                        if owner == nil { visibilityMenu }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if model.loading {
-                    ProgressView()
+                    ProgressView().frame(maxWidth: .infinity)
                 } else if let err = model.errorMessage {
                     Text(err).foregroundStyle(Theme.danger)
                 } else if !model.hasAudio {
@@ -372,69 +400,63 @@ struct PlayerView: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.ink2)
                 } else {
-                    VStack(spacing: 4) {
-                        Slider(
-                            value: Binding(get: { scrub ?? model.position }, set: { scrub = $0 }),
-                            in: 0...max(model.duration, 1)
-                        ) { editing in
-                            if !editing, let s = scrub { model.seek(to: s); scrub = nil }
-                        }
-                        .tint(Theme.accent)
-                        HStack {
-                            Text(timecode(scrub ?? model.position))
-                            Spacer()
-                            Text(timecode(model.duration))
-                        }
-                        .font(.caption.monospacedDigit()).foregroundStyle(Theme.ink2)
-                    }
-                    .disabled(!model.hasAudio)
-
-                    HStack(spacing: 44) {
-                        Button { Haptics.tap(); model.skip(-15) } label: {
-                            Image(systemName: "gobackward.15").font(.title)
-                        }
-                        Button { Haptics.tap(); model.toggle() } label: {
-                            Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 72))
-                        }
-                        Button { Haptics.tap(); model.skip(15) } label: {
-                            Image(systemName: "goforward.15").font(.title)
-                        }
-                    }
-                    .foregroundStyle(Theme.accent)
-                    .disabled(!model.hasAudio)
-
-                    // Tap cycles 1x → 1.25x → 1.5x → 2x → back to 1x.
-                    Button {
-                        Haptics.selection()
-                        let i = Self.speeds.firstIndex(of: model.speed) ?? 0
-                        model.setSpeed(Self.speeds[(i + 1) % Self.speeds.count])
-                    } label: {
-                        Text(speedLabel(model.speed))
-                            .font(.subheadline.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(Theme.ink2)
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(Theme.surface, in: Capsule())
-                            .overlay(Capsule().stroke(Theme.line))
-                            .contentTransition(.numericText())
-                    }
-                    .animation(.snappy(duration: 0.2), value: model.speed)
-                    .disabled(!model.hasAudio)
+                    // Inline player (Spotify episode layout). Its frame is
+                    // reported so the nav bar can take over once it scrolls away.
+                    inlinePlayer
+                        .background(GeometryReader { geo in
+                            Color.clear.preference(
+                                key: ControlsMaxYKey.self,
+                                value: geo.frame(in: .named("playerScroll")).maxY
+                            )
+                        })
                 }
+
+                aboutCard
+                if let o = owner { authorCard(o) }
             }
             .padding()
+        }
+        .coordinateSpace(name: "playerScroll")
+        .onPreferenceChange(ControlsMaxYKey.self) { maxY in
+            // Spotify behavior: the compact header (title + mini play) appears
+            // only when the real controls have scrolled off the top.
+            let off = maxY < 10
+            if off != controlsOffscreen {
+                withAnimation(.easeInOut(duration: 0.18)) { controlsOffscreen = off }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
-            // Long titles overflow the nav bar — show the author there instead;
-            // the full title stays prominent in the body.
+            // Long titles overflow the nav bar — author lives there; once the
+            // inline player scrolls away, title + mini play take over.
             ToolbarItem(placement: .principal) {
-                Text(authorLabel)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.ink)
+                if controlsOffscreen {
+                    VStack(spacing: 0) {
+                        Text(item.title)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Theme.ink)
+                            .lineLimit(1)
+                        Text(authorLabel)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.ink2)
+                    }
+                } else {
+                    Text(authorLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.ink)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if controlsOffscreen, model.hasAudio {
+                    Button { Haptics.tap(); model.toggle() } label: {
+                        Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Theme.accent)
+                    }
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if owner == nil {
@@ -479,6 +501,132 @@ struct PlayerView: View {
                 try? await Task.sleep(for: .seconds(4))
                 await model.pollGenerating()
             }
+        }
+    }
+
+    /// Inline player: scrubber + one Spotify-style control row
+    /// (speed · back 15 · play · fwd 15 · sleep timer).
+    private var inlinePlayer: some View {
+        VStack(spacing: 4) {
+            Slider(
+                value: Binding(get: { scrub ?? model.position }, set: { scrub = $0 }),
+                in: 0...max(model.duration, 1)
+            ) { editing in
+                if !editing, let s = scrub { model.seek(to: s); scrub = nil }
+            }
+            .tint(Theme.accent)
+            HStack {
+                Text(timecode(scrub ?? model.position))
+                Spacer()
+                Text(timecode(model.duration))
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(Theme.ink2)
+
+            HStack {
+                // Tap cycles 1x → 1.25x → 1.5x → 2x → back to 1x.
+                Button {
+                    Haptics.selection()
+                    let i = Self.speeds.firstIndex(of: model.speed) ?? 0
+                    model.setSpeed(Self.speeds[(i + 1) % Self.speeds.count])
+                } label: {
+                    Text(speedLabel(model.speed))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(Theme.ink)
+                        .contentTransition(.numericText())
+                        .frame(width: 44, alignment: .leading)
+                }
+                .animation(.snappy(duration: 0.2), value: model.speed)
+                Spacer()
+                Button { Haptics.tap(); model.skip(-15) } label: {
+                    Image(systemName: "gobackward.15").font(.title2)
+                }
+                Spacer()
+                Button { Haptics.tap(); model.toggle() } label: {
+                    Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 60))
+                }
+                Spacer()
+                Button { Haptics.tap(); model.skip(15) } label: {
+                    Image(systemName: "goforward.15").font(.title2)
+                }
+                Spacer()
+                sleepMenu
+            }
+            .foregroundStyle(Theme.accent)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private static let createdAtParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private var metaLine: String {
+        var parts: [String] = []
+        let iso = Self.createdAtParser.date(from: item.createdAt)
+            ?? ISO8601DateFormatter().date(from: item.createdAt)
+        if let d = iso { parts.append(d.formatted(date: .abbreviated, time: .omitted)) }
+        parts.append(item.voice)
+        if let c = clientName { parts.append("made with \(c)") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var aboutCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("About this audio")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+            if let s = summary, !s.isEmpty {
+                Text(s).font(.subheadline).foregroundStyle(Theme.ink2)
+            }
+            Text(metaLine)
+                .font(.caption)
+                .foregroundStyle(Theme.ink2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
+    }
+
+    // ponytail: attribution card only — a Profile jump from the player needs
+    // cross-tab navigation; add when the profile route is reachable from here.
+    private func authorCard(_ username: String) -> some View {
+        HStack(spacing: 10) {
+            InitialsCircle(text: username, size: 36)
+                .frame(width: 36, height: 36)
+            Text("@\(username)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+            Spacer()
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
+    }
+
+    private var sleepMenu: some View {
+        Menu {
+            Button("Off") { model.setSleepTimer(minutes: nil) }
+            ForEach([5, 15, 30, 45], id: \.self) { m in
+                Button {
+                    Haptics.selection()
+                    model.setSleepTimer(minutes: m)
+                } label: {
+                    if model.sleepMinutes == m {
+                        Label("\(m) min", systemImage: "checkmark")
+                    } else {
+                        Text("\(m) min")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "timer")
+                .font(.title2)
+                .foregroundStyle(model.sleepMinutes == nil ? Theme.accent : Theme.ink)
+                .frame(width: 44, alignment: .trailing)
         }
     }
 
