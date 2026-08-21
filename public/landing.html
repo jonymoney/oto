@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>oto — Turn Anything Into Audio You Keep | AI Text to Podcast</title>
+<meta name="description" content="Ask Claude to read anything aloud — articles, notes, the answer it just wrote — and oto saves it as podcast-quality audio in your library forever. 10 free minutes every month.">
+<link rel="canonical" href="https://oto.audio/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="oto">
+<meta property="og:title" content="oto — turn anything into audio you keep forever">
+<meta property="og:description" content="Ask your AI to read anything aloud and keep it like a podcast episode — articles, notes, answers, stories.">
+<meta property="og:url" content="https://oto.audio/">
+<meta property="og:image" content="https://oto.audio/icon.png">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "oto",
+  "url": "https://oto.audio/",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web",
+  "description": "oto turns any text into spoken audio you keep forever — generate it inside your AI chat, then listen, collect, and share it like a podcast.",
+  "offers": [
+    {"@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD"},
+    {"@type": "Offer", "name": "oto unlimited", "price": "9.99", "priceCurrency": "USD"}
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "Can Claude read its answers out loud?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Yes. With oto connected, ask Claude to read any answer aloud and you get a saved, replayable audio in your library — not a one-off voice that disappears when the chat ends."}},
+    {"@type": "Question", "name": "How do I turn an article into a podcast?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Paste the article (or its link) into Claude and ask for it read aloud. oto turns it into an episode in your library that you can play like a podcast — while you cook, commute, or train."}},
+    {"@type": "Question", "name": "Is there a free plan?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Yes — 10 minutes of generated audio every month, no card required. Unlimited generation is $9.99/month and you can cancel anytime from the billing portal."}},
+    {"@type": "Question", "name": "Do I need to install an app?",
+     "acceptedAnswer": {"@type": "Answer", "text": "No. oto works inside Claude on the web and desktop. An iOS app is on the way."}},
+    {"@type": "Question", "name": "Who can hear my audio?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Your library is private by default. Every audio has a share page that only people with the link can play — no account needed to listen."}}
+  ]
+}
+</script>
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#F4F7EE; --surface1:#FAFCF5; --surface2:#FFFFFF;
+    --ink:#181A13; --ink-muted:#6D7561; --ink-faint:#8F977F;
+    --hairline:#DDE3D1; --accent:#7BA428; --accent-text:#5C7D1E;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#181A13; --surface1:#1F221A; --surface2:#262A20;
+      --ink:#EEF1E5; --ink-muted:#99A189; --ink-faint:#6F7663;
+      --hairline:#2C3025; --accent:#AACF53; --accent-text:#AACF53;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font-family:'Instrument Sans',system-ui,sans-serif;line-height:1.6;
+       font-variant-numeric:tabular-nums}
+  .display{font-family:'Clash Display','Instrument Sans',sans-serif;font-weight:600;line-height:1.08;letter-spacing:-.01em}
+  .wrap{max-width:64rem;margin:0 auto;padding:0 1.5rem}
+  a{color:var(--accent-text)}
+  .eyebrow{font-weight:700;text-transform:uppercase;letter-spacing:.22em;font-size:.78rem;color:var(--accent-text);margin:0 0 .9rem}
+
+  header{border-bottom:2px solid var(--ink)}
+  header .wrap{display:flex;align-items:center;justify-content:space-between;padding-top:1.1rem;padding-bottom:1.1rem}
+  .wordmark{height:26px;width:auto;display:block;color:var(--ink)}
+  header nav a{text-decoration:none;font-weight:500;margin-left:1.4rem;font-size:.95rem}
+  header nav a.cta{color:var(--ink)}
+  @media (max-width:520px){header nav a.hide-sm{display:none}}
+
+  .hero{padding-top:4.5rem;padding-bottom:3.5rem}
+  .hero h1{font-size:clamp(2.4rem,6.5vw,4.2rem);margin:0 0 1.2rem;max-width:16ch}
+  .hero .dek{font-size:1.2rem;max-width:38rem;color:var(--ink-muted);margin:0 0 2.2rem}
+  .hero .dek strong{color:var(--ink);font-weight:500}
+  .btns a{display:inline-block;text-decoration:none;font-weight:700;padding:.75rem 1.4rem;border-radius:8px;margin:0 .8rem .8rem 0}
+  .btns .primary{background:var(--accent);color:var(--ground)}
+  .btns .ghost{border:1.5px solid var(--ink);color:var(--ink)}
+
+  .demo{background:var(--surface1);border:1px solid var(--hairline);border-radius:14px;
+        padding:1.1rem 1.2rem;max-width:34rem;margin-top:2.4rem}
+  .demo .label{font-size:.8rem;color:var(--ink-faint);margin:0 0 .6rem}
+  .demo .row{display:flex;align-items:center;gap:.8rem;margin-bottom:.7rem}
+  .demo .emoji{font-size:1.5rem}
+  .demo .title{font-weight:700;line-height:1.3}
+  .demo .voice{font-size:.82rem;color:var(--ink-muted);display:flex;align-items:center;gap:.35rem}
+  .demo .voice .dot{width:.6rem;height:.6rem;border-radius:50%;background:#007B43}
+  .demo audio{width:100%;display:block}
+
+  section{padding:3.5rem 0;border-top:1px solid var(--hairline)}
+  h2.display{font-size:clamp(1.7rem,4vw,2.4rem);margin:0 0 1rem}
+  .lede{color:var(--ink-muted);max-width:38rem;margin:0 0 2rem}
+
+  .steps{counter-reset:step;margin:2rem 0 0;padding:0;list-style:none;max-width:40rem}
+  .steps li{counter-increment:step;display:flex;gap:1rem;margin:1.3rem 0;align-items:baseline}
+  .steps li::before{content:counter(step);font-weight:700;color:var(--accent-text);
+        border:1.5px solid var(--accent-text);border-radius:50%;width:1.7rem;height:1.7rem;flex:none;
+        display:flex;align-items:center;justify-content:center;font-size:.9rem;align-self:flex-start}
+  .steps h3{margin:0 0 .15rem;font-size:1.05rem}
+  .steps p{margin:0;color:var(--ink-muted)}
+  code{background:var(--surface2);border:1px solid var(--hairline);padding:.2rem .5rem;border-radius:6px;font-size:.95em;word-break:break-all}
+
+  .shots{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:1.2rem;margin-top:2.4rem}
+  @media (max-width:720px){.shots{grid-template-columns:1fr}}
+  .shot{background:var(--surface1);border:1px solid var(--hairline);border-radius:14px;
+        display:flex;align-items:center;justify-content:center;overflow:hidden;height:380px}
+  .shot img{width:100%;height:100%;object-fit:cover;display:block}
+  .shot .ph{color:var(--ink-faint);font-size:.85rem;border:1.5px dashed var(--hairline);border-radius:8px;padding:.5rem 1rem}
+  .caption{color:var(--ink-muted);font-size:.85rem;margin-top:.5rem}
+
+  .cases{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem;margin-top:2.2rem}
+  @media (max-width:720px){.cases{grid-template-columns:1fr}}
+  .case{background:var(--surface1);border:1px solid var(--hairline);border-radius:14px;padding:1.6rem}
+  .case h3{margin:0 0 .5rem;font-size:1.1rem}
+  .case p{margin:0;color:var(--ink-muted)}
+
+  .caps{display:grid;grid-template-columns:repeat(3,1fr);gap:2.2rem 3rem;margin-top:2.4rem}
+  @media (max-width:720px){.caps{grid-template-columns:1fr}}
+  .cap .num{font-weight:700;font-size:.8rem;letter-spacing:.18em;color:var(--ink-faint)}
+  .cap h3{font-size:1.15rem;margin:.3rem 0 .4rem}
+  .cap p{margin:0;color:var(--ink-muted)}
+
+  .voices{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1.8rem}
+  .chip{display:inline-flex;align-items:center;gap:.5rem;background:var(--surface1);
+        border:1px solid var(--hairline);border-radius:999px;padding:.38rem .85rem .38rem .6rem;
+        font:inherit;font-size:.9rem;color:var(--ink);cursor:pointer}
+  .chip:hover{border-color:var(--accent)}
+  /* tonal orb: a hue ramping its own lightness — cross-hue stays in the iOS liquid orbs */
+  .chip .dot{width:.85rem;height:.85rem;border-radius:50%;flex:none;
+        background:radial-gradient(circle at 32% 28%, color-mix(in oklab, var(--c) 45%, #fff), var(--c) 75%)}
+  .chip[aria-pressed="true"]{border-color:var(--accent)}
+  .chip[aria-pressed="true"] .dot{animation:orb-pulse 1s ease-in-out infinite}
+  @keyframes orb-pulse{50%{transform:scale(1.35)}}
+  .chip small{color:var(--ink-faint)}
+
+  .plans{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-top:2.2rem}
+  @media (max-width:720px){.plans{grid-template-columns:1fr}}
+  .plan{background:var(--surface1);border:1px solid var(--hairline);border-radius:14px;padding:1.8rem}
+  .plan.featured{border-color:var(--accent)}
+  .plan h3{margin:0 0 .2rem;font-size:1.2rem}
+  .plan .price{font-size:2rem;font-weight:700;margin:.4rem 0 1rem}
+  .plan .price small{font-size:1rem;font-weight:400;color:var(--ink-muted)}
+  .plan ul{margin:0;padding-left:1.2rem;color:var(--ink-muted)}
+  .plan li{margin:.35rem 0}
+  .fineprint{color:var(--ink-faint);font-size:.85rem;margin-top:1.6rem;max-width:40rem}
+
+  .faq{max-width:44rem;margin-top:1.6rem}
+  .faq details{border-bottom:1px solid var(--hairline);padding:.9rem 0}
+  .faq summary{font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:1rem}
+  .faq summary::after{content:"+";color:var(--accent-text);font-weight:700}
+  .faq details[open] summary::after{content:"–"}
+  .faq p{color:var(--ink-muted);margin:.6rem 0 0}
+
+  footer{border-top:2px solid var(--ink);padding:2.2rem 0 3rem;font-size:.9rem;color:var(--ink-muted)}
+  footer .row{display:flex;flex-wrap:wrap;gap:.4rem 1.6rem;align-items:center}
+  footer a{text-decoration:none}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a href="/" aria-label="oto home" style="line-height:0">
+      <!-- W1 wordmark: ink letters via currentColor, moegi on-air dot -->
+      <svg class="wordmark" viewBox="-19 -638 1956 688" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="oto">
+        <path fill="currentColor" d="M21.0 -250.0Q21.0 -369.0 99.5 -440.0Q178.0 -511.0 307.0 -511.0Q436.0 -511.0 514.5 -440.0Q593.0 -369.0 593.0 -250.0Q593.0 -132.0 514.5 -61.0Q436.0 10.0 307.0 10.0Q178.0 10.0 99.5 -61.0Q21.0 -132.0 21.0 -250.0ZM307.0 -379.0Q232.0 -379.0 201.0 -348.5Q170.0 -318.0 170.0 -250.0Q170.0 -183.0 201.0 -153.0Q232.0 -123.0 307.0 -123.0Q382.0 -123.0 413.0 -153.0Q444.0 -183.0 444.0 -250.0Q444.0 -317.0 412.5 -348.0Q381.0 -379.0 307.0 -379.0Z M977.0 0.0H853.0Q665.0 0.0 665.0 -181.0V-377.0H586.0V-501.0H665.0V-598.0H815.0V-501.0H977.0V-377.0H815.0V-198.0Q815.0 -161.0 830.5 -148.0Q846.0 -135.0 887.0 -135.0H977.0Z M984.0 -250.0Q984.0 -369.0 1062.5 -440.0Q1141.0 -511.0 1270.0 -511.0Q1399.0 -511.0 1477.5 -440.0Q1556.0 -369.0 1556.0 -250.0Q1556.0 -132.0 1477.5 -61.0Q1399.0 10.0 1270.0 10.0Q1141.0 10.0 1062.5 -61.0Q984.0 -132.0 984.0 -250.0ZM1270.0 -379.0Q1195.0 -379.0 1164.0 -348.5Q1133.0 -318.0 1133.0 -250.0Q1133.0 -183.0 1164.0 -153.0Q1195.0 -123.0 1270.0 -123.0Q1345.0 -123.0 1376.0 -153.0Q1407.0 -183.0 1407.0 -250.0Q1407.0 -317.0 1375.5 -348.0Q1344.0 -379.0 1270.0 -379.0Z"/>
+        <circle fill="var(--accent)" cx="1787.0" cy="-130.0" r="110.0"/>
+      </svg>
+    </a>
+    <nav>
+      <a href="#how" class="hide-sm">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#how" class="cta">Get started →</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero wrap">
+  <p class="eyebrow">Anything, read aloud</p>
+  <h1 class="display">Turn anything into audio you keep forever.</h1>
+  <p class="dek">An audiobook of whatever you're curious about. Ask your AI to read
+     anything aloud — an article, your notes, <strong>the answer it just wrote</strong> —
+     and oto saves it to your library: yours to play, share, and come back to,
+     like a podcast feed you write yourself.</p>
+  <div class="btns">
+    <a class="primary" href="#how">Get started free</a>
+    <a class="ghost" href="#pricing">See pricing</a>
+  </div>
+  <div class="demo">
+    <p class="label">Hear it — a real episode from an oto library:</p>
+    <div class="row">
+      <span class="emoji">🌀</span>
+      <div>
+        <div class="title">Moloch: Why We Can't Coordinate</div>
+        <div class="voice"><span class="dot"></span>cedar <span style="color:var(--ink-faint)">tokiwa · 2 min</span></div>
+      </div>
+    </div>
+    <audio controls preload="none" src="https://oto.audio/a/913eff29-f963-4bb8-9772-5ee3f79a96f8/audio"></audio>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2 class="display">From text to podcast in one sentence.</h2>
+    <ol class="steps">
+      <li><div><h3>Connect oto to Claude</h3>
+        <p>In Claude, open <strong>Settings → Connectors → Add custom connector</strong> and paste
+           <code>__MCP_URL__</code>. Two minutes, free.</p></div></li>
+      <li><div><h3>Say "read this aloud"</h3>
+        <p>Paste an article, drop in your notes, or just ask a question and have the
+           answer narrated. Pick one of 19 voices, or let it pick.</p></div></li>
+      <li><div><h3>Press play — and keep it</h3>
+        <p>The player appears right in the conversation, and the audio lands in your
+           library forever. Nothing expires, nothing regenerates.</p></div></li>
+    </ol>
+    <div class="shots">
+      <figure style="margin:0">
+        <div class="shot"><span class="ph">screenshot — player in chat</span></div>
+        <figcaption class="caption">The player appears right in the conversation.</figcaption>
+      </figure>
+      <figure style="margin:0">
+        <div class="shot"><span class="ph">screenshot — library</span></div>
+        <figcaption class="caption">Your library keeps every audio.</figcaption>
+      </figure>
+      <figure style="margin:0">
+        <div class="shot"><span class="ph">screenshot — explore</span></div>
+        <figcaption class="caption">Explore what others are listening to.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Is this for you?</p>
+    <h2 class="display">An audiobook of anything you're curious about.</h2>
+    <div class="cases">
+      <div class="case">
+        <h3>Curious minds</h3>
+        <p>You ask AI things all day. Now every explanation becomes a listen for your
+           walk — a deep dive on peptides, GPS, game theory, whatever this week's
+           rabbit hole is.</p>
+      </div>
+      <div class="case">
+        <h3>Focus differently</h3>
+        <p>When reading won't stick — ADHD, dyslexia, tired eyes — listening often does.
+           Turn required reading into audio you can absorb anywhere.</p>
+      </div>
+      <div class="case">
+        <h3>Clear your reading list</h3>
+        <p>Articles and newsletters pile up faster than you read them. Have them read
+           aloud and play them like podcast episodes while you cook, commute, or train.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Why oto</p>
+    <h2 class="display">A podcast app, except you write the episodes.</h2>
+    <p class="lede">Text-to-speech apps read to you, then forget. oto is a place your
+       audio lives.</p>
+    <div class="caps">
+      <div class="cap"><span class="num">01</span>
+        <h3>Generated once, yours forever</h3>
+        <p>Every audio is created a single time and stored permanently. Your library
+           only grows — replay anything, years later.</p></div>
+      <div class="cap"><span class="num">02</span>
+        <h3>Share with a link</h3>
+        <p>Every audio gets a public page. Send the link to anyone — they press play,
+           no account, no app.</p></div>
+      <div class="cap"><span class="num">03</span>
+        <h3>A feed worth following</h3>
+        <p>Explore what other people are turning into audio. Follow them, dig into
+           topics, build your own station.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <p class="eyebrow">Voices &amp; pricing</p>
+    <h2 class="display">Start free. Go unlimited when you're hooked.</h2>
+    <div class="plans">
+      <div class="plan">
+        <h3>Free</h3>
+        <p class="price">$0 <small>/ month</small></p>
+        <ul>
+          <li>10 minutes of generated audio each month</li>
+          <li>Every voice, the full player, your library</li>
+          <li>Public share pages</li>
+          <li>No card required</li>
+        </ul>
+      </div>
+      <div class="plan featured">
+        <h3>oto unlimited</h3>
+        <p class="price">$9.99 <small>/ month</small></p>
+        <ul>
+          <li>Unlimited audio generation</li>
+          <li>Everything in Free</li>
+          <li>Cancel anytime from your billing portal</li>
+        </ul>
+      </div>
+    </div>
+    <p class="fineprint">Payments are processed by Stripe. Subscriptions renew monthly and
+       can be cancelled anytime from the billing portal — see the
+       <a href="/terms">Terms</a> for the full billing and refund policy.</p>
+    <p class="lede" style="margin:2.6rem 0 0">Nineteen voices, and every voice owns a color —
+       named for a traditional Japanese hue, so your library reads at a glance.
+       <strong style="color:var(--ink);font-weight:500">Tap one to hear it introduce itself.</strong></p>
+    <div class="voices">
+      <button class="chip" data-voice="coral" style="--c:#EB6101"><span class="dot"></span>coral <small>shu</small></button>
+      <button class="chip" data-voice="echo" style="--c:#00A3AF"><span class="dot"></span>echo <small>asagi</small></button>
+      <button class="chip" data-voice="nova" style="--c:#1E50A2"><span class="dot"></span>nova <small>ruri</small></button>
+      <button class="chip" data-voice="sage" style="--c:#7BA428"><span class="dot"></span>sage <small>moegi</small></button>
+      <button class="chip" data-voice="fable" style="--c:#5654A2"><span class="dot"></span>fable <small>kikyo</small></button>
+      <button class="chip" data-voice="verse" style="--c:#745399"><span class="dot"></span>verse <small>edo murasaki</small></button>
+      <button class="chip" data-voice="ballad" style="--c:#9E3D3F"><span class="dot"></span>ballad <small>suo</small></button>
+      <button class="chip" data-voice="ash" style="--c:#BF783A"><span class="dot"></span>ash <small>kohaku</small></button>
+      <button class="chip" data-voice="alloy" style="--c:#AFAFB0"><span class="dot"></span>alloy <small>ginnezu</small></button>
+      <button class="chip" data-voice="onyx" style="--c:#595857"><span class="dot"></span>onyx <small>sumi</small></button>
+      <button class="chip" data-voice="shimmer" style="--c:#3F8F7A"><span class="dot"></span>shimmer <small>tamamushi</small></button>
+      <button class="chip" data-voice="blaze" style="--c:#D3381C"><span class="dot"></span>blaze <small>hi</small></button>
+      <button class="chip" data-voice="adrian" style="--c:#B7282E"><span class="dot"></span>adrian <small>akane</small></button>
+      <button class="chip" data-voice="jasphina" style="--c:#E95295"><span class="dot"></span>jasphina <small>tsutsuji</small></button>
+      <button class="chip" data-voice="sarah" style="--c:#F0A0B4"><span class="dot"></span>sarah <small>sakura</small></button>
+      <button class="chip" data-voice="cedar" style="--c:#007B43"><span class="dot"></span>cedar <small>tokiwa</small></button>
+      <button class="chip" data-voice="marin" style="--c:#007BBB"><span class="dot"></span>marin <small>konpeki</small></button>
+      <button class="chip" data-voice="ethan" style="--c:#004C71"><span class="dot"></span>ethan <small>ai</small></button>
+      <button class="chip" data-voice="grim" style="--c:#819C8B"><span class="dot"></span>grim <small>seiji</small></button>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Questions</p>
+    <h2 class="display">Before you ask.</h2>
+    <div class="faq">
+      <details>
+        <summary>Can Claude read its answers out loud?</summary>
+        <p>Yes. With oto connected, ask Claude to read any answer aloud and you get a
+           saved, replayable audio in your library — not a one-off voice that disappears
+           when the chat ends.</p>
+      </details>
+      <details>
+        <summary>How do I turn an article into a podcast?</summary>
+        <p>Paste the article (or its link) into Claude and ask for it read aloud. oto
+           turns it into an episode in your library that you can play like a podcast —
+           while you cook, commute, or train.</p>
+      </details>
+      <details>
+        <summary>Is there a free plan?</summary>
+        <p>Yes — 10 minutes of generated audio every month, no card required. Unlimited
+           generation is $9.99/month, cancel anytime.</p>
+      </details>
+      <details>
+        <summary>Do I need to install an app?</summary>
+        <p>No. oto works inside Claude on the web and desktop. An iOS app is on the way.
+           Just confirmed your email? Head back to your chat and reconnect — sign-in
+           picks up where you left off.</p>
+      </details>
+      <details>
+        <summary>Who can hear my audio?</summary>
+        <p>Your library is private by default. Every audio has a share page that only
+           people with the link can play — no account needed to listen.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <span>© 2026 oto — Anything, read aloud.</span>
+      <a href="mailto:support@oto.audio">support@oto.audio</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Voice previews: click a chip → fetch a presigned sample URL → play.
+(function () {
+  var player = new Audio()
+  var current = null
+  function clear() { if (current) { current.setAttribute('aria-pressed', 'false'); current = null } }
+  player.addEventListener('ended', clear)
+  document.querySelectorAll('.chip[data-voice]').forEach(function (btn) {
+    btn.setAttribute('aria-pressed', 'false')
+    btn.addEventListener('click', function () {
+      if (current === btn) { player.pause(); clear(); return }
+      clear()
+      current = btn
+      btn.setAttribute('aria-pressed', 'true')
+      fetch('/voices/' + btn.dataset.voice + '/preview')
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json() })
+        .then(function (d) { if (current !== btn) return; player.src = d.url; return player.play() })
+        .catch(function () { if (current === btn) clear() })
+    })
+  })
+})()
+</script>
+</body>
+</html>

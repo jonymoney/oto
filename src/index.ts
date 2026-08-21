@@ -13,6 +13,7 @@ import { consentRouter } from './consent.js'
 import { legalRouter } from './legal.js'
 import { connectRouter } from './connect.js'
 import { shareRouter, shortShareRouter } from './share.js'
+import { previewsRouter } from './previews.js'
 import { apiRouter } from './api.js'
 import { handleWebhookEvent } from './billing.js'
 
@@ -59,27 +60,24 @@ app.get('/favicon.ico', (_req, res) => {
 })
 
 // Landing for the bare domain: where Site-URL fallbacks and curious visitors end up.
-const landingHtml = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>oto — text to speech for your AI chats</title>
-<link rel="icon" type="image/png" href="/icon.png">
-<style>
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16130f;color:#e8e0d4;
-       font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}
-  main{padding:2rem;max-width:34rem}
-  h1{font-size:1.6rem;letter-spacing:.04em;margin:0 0 .75rem}
-  .led{color:#f5a623}
-  p{line-height:1.6;color:#b8ad9c;font-size:.92rem}
-  code{background:#241f18;padding:.15rem .45rem;border-radius:4px;color:#e8e0d4}
-</style></head><body><main>
-  <h1><span class="led">◉</span> oto</h1>
-  <p>Text to speech inside your AI chat. Generated once, kept forever.</p>
-  <p>Connect it in Claude as a custom connector:<br><code>${config.MCP_SERVER_URL}</code></p>
-  <p>Just confirmed your email? Head back to your chat and reconnect — sign-in will pick up where you left off.</p>
-  <p style="font-size:.8rem"><a href="/connect" style="color:#f5a623;text-decoration:none">Connect</a> · <a href="/terms" style="color:#f5a623;text-decoration:none">Terms</a> · <a href="/privacy" style="color:#f5a623;text-decoration:none">Privacy</a></p>
-</main></body></html>`
+// Also Stripe's business-verification page: name, what we sell, pricing, support contact.
+const landingHtml = readFileSync(path.join(publicDir, 'landing.html'), 'utf8')
+  .replace('__MCP_URL__', config.MCP_SERVER_URL)
 app.get('/', (_req, res) => {
   res.type('html').send(landingHtml)
+})
+// Landing screenshots: drop pngs into public/img and reference them as /img/<name>.
+app.use('/img', express.static(path.join(publicDir, 'img')))
+
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: https://oto.audio/sitemap.xml\n')
+})
+app.get('/sitemap.xml', (_req, res) => {
+  const urls = ['/', '/terms', '/privacy']
+    .map((p) => `<url><loc>https://oto.audio${p}</loc></url>`)
+    .join('')
+  res.type('application/xml')
+    .send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`)
 })
 
 // Magic-link web handoff: the sign-in email points here (AUTH_WEB_CALLBACK_URL).
@@ -130,6 +128,11 @@ app.use(connectRouter())
 // Public share pages (/a/:id) — no auth: the unguessable audio UUID is the
 // capability, like a Spotify link. Must stay above the auth-protected routers.
 app.use(shareRouter())
+
+// Voice previews for the landing page — same handler iOS uses via /api, but
+// public: samples are generated once per (provider, lang, voice) then only
+// presigned, so anonymous traffic can't drive synthesis cost.
+app.use(previewsRouter())
 
 // REST JSON API for native clients (iOS). Validates the Better Auth session
 // bearer via getSession — NOT the JWT path /mcp uses.
