@@ -1,31 +1,32 @@
 import SwiftUI
 
-/// Compact bottom bar for the shared player — visible whenever an audio is
-/// loaded (playing or paused) and the full player screen isn't. Tapping the
-/// bar opens the full player as a sheet; playback itself never stops here.
+/// Compact bottom bar for the shared player — mounted whenever an audio is
+/// loaded (playing or paused) and never unmounted while listening: the full
+/// player sheet simply covers it and reveals it again on dismiss. Tapping or
+/// swiping up asks the root to present the full player.
 struct MiniPlayer: View {
     @Environment(PlayerModel.self) private var model
-    @State private var showingFull = false
     @State private var dragOffset: CGFloat = 0 // <= 0; bar follows an upward drag
 
     var body: some View {
         Group {
-            if let item = model.item, !model.fullPlayerVisible {
-                bar(item)
-            }
-        }
-        // Attached outside the `if` so the sheet survives the bar hiding
-        // (fullPlayerVisible flips true as the sheet's PlayerView appears).
-        .sheet(isPresented: $showingFull) {
             if let item = model.item {
-                NavigationStack { PlayerView(item: item) }
-                    .presentationDragIndicator(.visible)
+                bar(item)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // Animates only the initial mount (and removal on stop) — the bar
+        // stays mounted across sheet present/dismiss, so no re-entrance.
+        .animation(.snappy(duration: 0.3), value: model.item?.id)
+    }
+
+    private func present(_ item: AudioItem) {
+        dragOffset = 0
+        model.requestedItem = item
     }
 
     private func bar(_ item: AudioItem) -> some View {
-        Button { showingFull = true } label: {
+        Button { present(item) } label: {
             HStack(spacing: 12) {
                 CoverView(id: item.id, mood: model.detail?.mood ?? item.mood, size: 40)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -74,9 +75,10 @@ struct MiniPlayer: View {
                 }
                 .onEnded { v in
                     if v.translation.height < -50 || v.predictedEndTranslation.height < -150 {
-                        showingFull = true
+                        present(item)
+                    } else {
+                        dragOffset = 0
                     }
-                    dragOffset = 0 // bar sits in place under/after the sheet
                 }
         )
         .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.8), value: dragOffset)

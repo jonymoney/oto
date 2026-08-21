@@ -38,6 +38,7 @@ final class LibraryModel {
 
 struct LibraryView: View {
     @Environment(AuthManager.self) private var auth
+    @Environment(PlayerModel.self) private var player
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = LibraryModel()
 
@@ -56,7 +57,6 @@ struct LibraryView: View {
             }
             .background(Theme.bg)
             .navigationTitle("oto")
-            .navigationDestination(for: AudioItem.self) { PlayerView(item: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -115,25 +115,13 @@ struct LibraryView: View {
             List {
                 if !continueItems.isEmpty {
                     Section {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(alignment: .top, spacing: 14) {
-                                ForEach(continueItems) { item in
-                                    NavigationLink(value: item) { ContinueCard(item: item) }
-                                        .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 4)
-                        }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        ForEach(continueItems) { row(for: $0, inProgress: true) }
                     } header: {
                         Text("Continue Listening").foregroundStyle(Theme.ink2)
                     }
                 }
                 Section {
-                    mainRows
+                    ForEach(restItems) { row(for: $0, inProgress: false) }
                 }
             }
             .scrollContentBackground(.hidden)
@@ -143,65 +131,98 @@ struct LibraryView: View {
     /// Items with a meaningful saved position (>5s, <95% done), freshest first.
     /// The local ResumeStore mirror wins over the server value (offline plays).
     private var continueItems: [AudioItem] {
-        let candidates = model.items.filter { item in
+        model.items.filter { item in
             guard item.status == "ready", let d = item.durationSec, d > 0 else { return false }
             let pos = ResumeStore.get(item.id) ?? item.positionSec ?? 0
             return pos > 5 && pos < d * 0.95
         }
-        return Array(candidates.sorted { ($0.playedAt ?? "") > ($1.playedAt ?? "") }.prefix(10))
+        .sorted { ($0.playedAt ?? "") > ($1.playedAt ?? "") }
     }
 
-    private var mainRows: some View {
-            ForEach(model.items) { item in
-                NavigationLink(value: item) {
-                    HStack(spacing: 12) {
-                        CoverThumb(item: item, size: 56)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title).lineLimit(1).foregroundStyle(Theme.ink)
-                            if let s = item.summary, !s.isEmpty {
-                                Text(s).lineLimit(1).font(.caption).foregroundStyle(Theme.ink2)
-                            }
-                            HStack(spacing: 8) {
-                                Text(item.voice)
-                                if let d = item.durationSec { Text(timecode(d)) }
-                                if item.status == "processing" {
-                                    ProgressView().controlSize(.mini)
-                                    Text("Generating…").foregroundStyle(Theme.accent)
-                                } else if item.status != "ready" {
-                                    Text(item.status).foregroundStyle(Theme.danger)
+    /// Everything not in progress, in the API's createdAt-desc order.
+    private var restItems: [AudioItem] {
+        let inProgress = Set(continueItems.map(\.id))
+        return model.items.filter { !inProgress.contains($0.id) }
+    }
+
+    private func row(for item: AudioItem, inProgress: Bool) -> some View {
+        Button {
+            player.requestedItem = item
+        } label: {
+            HStack(spacing: 12) {
+                CoverThumb(item: item, size: 56)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(item.title).lineLimit(1).foregroundStyle(Theme.ink)
+                        if !inProgress, item.playedAt == nil, item.status == "ready" {
+                            Text("NEW")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
+                    if let s = item.summary, !s.isEmpty {
+                        Text(s).lineLimit(1).font(.caption).foregroundStyle(Theme.ink2)
+                    }
+                    HStack(spacing: 8) {
+                        Text(item.voice)
+                        if let d = item.durationSec { Text(timecode(d)) }
+                        if item.status == "processing" {
+                            ProgressView().controlSize(.mini)
+                            Text("Generating…").foregroundStyle(Theme.accent)
+                        } else if item.status != "ready" {
+                            Text(item.status).foregroundStyle(Theme.danger)
+                        }
+                    }
+                    .font(.caption).foregroundStyle(Theme.ink2)
+                    if inProgress, let d = item.durationSec, d > 0 {
+                        let pos = ResumeStore.get(item.id) ?? item.positionSec ?? 0
+                        HStack(spacing: 8) {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Theme.line)
+                                    Capsule().fill(Theme.accent)
+                                        .frame(width: geo.size.width * min(max(pos / d, 0), 1))
                                 }
                             }
-                            .font(.caption).foregroundStyle(Theme.ink2)
-                        }
-                        Spacer(minLength: 8)
-                        if item.status == "ready" { DownloadAccessory(item: item) }
-                    }
-                }
-                .listRowBackground(Theme.surface)
-                .contextMenu {
-                    if Downloads.shared.isDownloaded(item.id) {
-                        Button("Remove download", systemImage: "trash", role: .destructive) {
-                            Downloads.shared.remove(item.id)
-                        }
-                    } else if item.status == "ready", !Downloads.shared.inProgress.contains(item.id) {
-                        Button("Download", systemImage: "arrow.down.circle") {
-                            Task { await Downloads.shared.download(item) }
+                            .frame(height: 3)
+                            Text("\(timecode(max(d - pos, 0))) left")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(Theme.ink2)
                         }
                     }
                 }
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if Downloads.shared.isDownloaded(item.id) {
-                        Button("Remove", role: .destructive) {
-                            Downloads.shared.remove(item.id)
-                        }
-                    } else if item.status == "ready" {
-                        Button("Download") {
-                            Task { await Downloads.shared.download(item) }
-                        }
-                        .tint(Theme.accent)
-                    }
+                Spacer(minLength: 8)
+                if item.status == "ready" { DownloadAccessory(item: item) }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Theme.surface)
+        .contextMenu {
+            if Downloads.shared.isDownloaded(item.id) {
+                Button("Remove download", systemImage: "trash", role: .destructive) {
+                    Downloads.shared.remove(item.id)
+                }
+            } else if item.status == "ready", !Downloads.shared.inProgress.contains(item.id) {
+                Button("Download", systemImage: "arrow.down.circle") {
+                    Task { await Downloads.shared.download(item) }
                 }
             }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if Downloads.shared.isDownloaded(item.id) {
+                Button("Remove", role: .destructive) {
+                    Downloads.shared.remove(item.id)
+                }
+            } else if item.status == "ready" {
+                Button("Download") {
+                    Task { await Downloads.shared.download(item) }
+                }
+                .tint(Theme.accent)
+            }
+        }
     }
 }
 
@@ -294,37 +315,6 @@ struct DownloadAccessory: View {
             }
             .buttonStyle(.borderless)
         }
-    }
-}
-
-/// Continue Listening card: cover, one-line title, thin progress bar.
-struct ContinueCard: View {
-    let item: AudioItem
-
-    private var progress: Double {
-        guard let d = item.durationSec, d > 0 else { return 0 }
-        let pos = ResumeStore.get(item.id) ?? item.positionSec ?? 0
-        return min(max(pos / d, 0), 1)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            CoverThumb(item: item, size: 96)
-            Text(item.title)
-                .font(.caption.weight(.medium))
-                .lineLimit(1)
-                .foregroundStyle(Theme.ink)
-            Capsule().fill(Theme.line)
-                .frame(height: 3)
-                .overlay(alignment: .leading) {
-                    GeometryReader { geo in
-                        Capsule().fill(Theme.accent)
-                            .frame(width: geo.size.width * progress)
-                    }
-                }
-                .clipShape(Capsule())
-        }
-        .frame(width: 96)
     }
 }
 

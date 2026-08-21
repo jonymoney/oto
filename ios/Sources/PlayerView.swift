@@ -25,8 +25,9 @@ final class PlayerModel {
     var detail: AudioDetail?
     var loading = true
     var errorMessage: String?
-    /// True while the full PlayerView is on screen — hides the mini-player bar.
-    var fullPlayerVisible = false
+    /// Setting this presents the full player sheet from the root (RootView
+    /// binds `.sheet(item:)` to it); dismissing the sheet clears it back to nil.
+    var requestedItem: AudioItem?
     private(set) var item: AudioItem?
     private(set) var hasAudio = false
     private(set) var playing = false
@@ -35,6 +36,7 @@ final class PlayerModel {
     private(set) var speed: Float = 1
 
     private var player: AVPlayer?
+    private var artwork: MPMediaItemArtwork? // rendered once per item; updateNowPlaying ticks 2x/sec
     private var timeObserver: Any?
     private var cancellables: Set<AnyCancellable> = []
     private var lastReportAt = Date.distantPast
@@ -47,6 +49,7 @@ final class PlayerModel {
         hasAudio = false
         position = 0
         self.item = item
+        artwork = Self.renderArtwork(id: item.id, mood: item.mood)
         loading = true; errorMessage = nil
         duration = item.durationSec ?? 0
         try? AVAudioSession.sharedInstance().setCategory(.playback)
@@ -171,7 +174,9 @@ final class PlayerModel {
 
     func stop() {
         teardown()
+        requestedItem = nil // dismisses the full player sheet if presented
         item = nil
+        artwork = nil
         detail = nil
         hasAudio = false
         position = 0
@@ -209,11 +214,30 @@ final class PlayerModel {
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: item.title,
             MPMediaItemPropertyArtist: item.voice,
+            MPMediaItemPropertyAlbumTitle: "oto",
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: player?.rate ?? 0,
         ]
+        if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// Same deterministic cover as CoverView on screen (same seed/mood → same art),
+    /// rendered to a 1024px UIImage for the lock screen / CarPlay.
+    private static func renderArtwork(id: String, mood: String?) -> MPMediaItemArtwork? {
+        let renderer = ImageRenderer(content: CoverView(id: id, mood: mood, size: 512))
+        renderer.scale = 2
+        guard let ui = renderer.uiImage else { return nil }
+        return artworkWrapping(ui)
+    }
+
+    // MediaPlayer invokes the request handler on its own queue; the closure must
+    // NOT inherit MainActor isolation or the executor check traps (SIGTRAP).
+    private nonisolated static func artworkWrapping(_ ui: UIImage) -> MPMediaItemArtwork {
+        // UIImage is immutable/thread-safe; the handler may run off-main.
+        MPMediaItemArtwork(boundsSize: ui.size) { _ in ui }
     }
 
     private func setupRemoteCommands() {
@@ -403,8 +427,6 @@ struct PlayerView: View {
                 await model.pollGenerating()
             }
         }
-        .onAppear { model.fullPlayerVisible = true }
-        .onDisappear { model.fullPlayerVisible = false } // playback continues
     }
 
     private func speedLabel(_ s: Float) -> String {
