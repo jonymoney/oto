@@ -1089,7 +1089,24 @@ export const collectionRepo = {
 // Better Auth's oidcProvider owns the oauth* tables; oto reads them for the
 // "AI connections" list and deletes rows to revoke a client (raw SQL, like the
 // oauthAccessToken read in auth.ts).
+// clientId → registered app name. Registrations are immutable once created, so
+// this never goes stale; it only spares a lookup on every generation.
+const appNameCache = new Map<string, string | null>()
+
 export const connectionRepo = {
+  /** Registered name of one OAuth client, or null if it never registered one. */
+  async appName(clientId: string): Promise<string | null> {
+    const cached = appNameCache.get(clientId)
+    if (cached !== undefined) return cached
+    const { rows } = await pool.query<{ name: string | null }>(
+      'select name from "oauthApplication" where "clientId" = $1',
+      [clientId],
+    )
+    const name = rows[0]?.name ?? null
+    appNameCache.set(clientId, name)
+    return name
+  },
+
   /** Distinct clients this user authorized (consent and/or issued tokens), with the app's registered name. */
   async list(userId: string): Promise<
     Array<{ clientId: string; name: string; firstConnectedAt: string; lastUsedAt: string | null }>

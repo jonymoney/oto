@@ -109,8 +109,36 @@ export interface SynthesisResult {
   format: 'mp3'
 }
 
+// A TTS chunk is at most 3800 chars — ~30s of work. The SDK's stock 10-minute
+// timeout (times 3 attempts) would pin a wedged upstream call for half an hour,
+// long past the point the caller and the 15-minute stale-row janitor gave up.
+const TTS_TIMEOUT_MS = 90_000
+
 // Reads OPENAI_API_KEY from env; config.ts (imported above) has already loaded dotenv.
-const openai = new OpenAI()
+const openai = new OpenAI({ timeout: TTS_TIMEOUT_MS, maxRetries: 2 })
+
+// Chunks synthesize concurrently, but capped: a 50k-char text is ~14 chunks, and
+// several jobs can overlap. An uncapped fan-out invites provider 429s, which cost
+// retries and wall-clock — 4 in flight keeps a long job fast without stampeding.
+const MAX_CONCURRENT_CHUNKS = 4
+
+/** Promise.all with a concurrency cap; results keep input order. */
+async function mapWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
 
 // The `instructions` param is rejected by the legacy tts-1 models.
 const MODELS_WITHOUT_INSTRUCTIONS = new Set(['tts-1', 'tts-1-hd'])
@@ -166,29 +194,24 @@ async function synthesizeAll(
   const chunks = chunkText(input)
   let done = 0
 
-  // Chunks synthesize concurrently (order preserved by Promise.all) — on the
+  // Chunks synthesize concurrently (order preserved by mapWithLimit) — on the
   // sync path the host gets zero bytes until the JSON response is complete, so
   // wall-clock latency must stay well under client/edge timeouts.
   // Probe duration per chunk and sum: probing the concatenated buffer would report
   // only the first segment's length if it carries a Xing/LAME header.
-  const parts = await Promise.all(
-    chunks.map((chunk) =>
-      (async () => {
-        const buffer = fish
-          ? await fishSynthChunk(chunk, referenceId)
-          : await openaiSynthChunk(chunk, {
-              model,
-              voice,
-              ...(withInstructions ? { instructions } : {}),
-            })
-        return { buffer, duration: await probeDurationSec(buffer) }
-      })().then((part) => {
-        done += 1
-        opts.onChunkDone?.(done, chunks.length)
-        return part
-      }),
-    ),
-  )
+  const parts = await mapWithLimit(chunks, MAX_CONCURRENT_CHUNKS, async (chunk) => {
+    const buffer = fish
+      ? await fishSynthChunk(chunk, referenceId)
+      : await openaiSynthChunk(chunk, {
+          model,
+          voice,
+          ...(withInstructions ? { instructions } : {}),
+        })
+    const part = { buffer, duration: await probeDurationSec(buffer) }
+    done += 1
+    opts.onChunkDone?.(done, chunks.length)
+    return part
+  })
 
   const buffers = parts.map((p) => p.buffer)
   let durationSec: number | null = 0
@@ -241,6 +264,9 @@ async function fishSynthChunk(chunk: string, referenceId?: string): Promise<Buff
       mp3_bitrate: 128,
       ...(referenceId ? { reference_id: referenceId } : {}),
     }),
+    // Bare fetch has no timeout of its own; without this a wedged Fish call
+    // hangs the job forever. The OpenAI SDK applies TTS_TIMEOUT_MS itself.
+    signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   })
   if (!response.ok) {
     const detail = await response.text().catch(() => '')

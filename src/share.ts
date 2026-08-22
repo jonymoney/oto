@@ -174,43 +174,43 @@ function sharePage(
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="/icon.png">
 <style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f1ea;color:#16130f;
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F4F7EE;color:#181A13;
 font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}
 main{padding:2rem 1.5rem;max-width:26rem;width:100%;box-sizing:border-box}
-.brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:1.4rem}.led{color:#f5a623}
+.brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:1.4rem}.led{color:#7BA428}
 .cover{position:relative;width:min(16rem,70vw);margin:0 auto;border-radius:14px;overflow:hidden;
 box-shadow:0 10px 30px rgba(22,19,15,.18)}
 .cover svg{display:block;width:100%;height:auto}
 .cover .emoji{position:absolute;inset:0;display:grid;place-items:center;font-size:4rem;
 text-shadow:0 2px 12px rgba(0,0,0,.25)}
 h1{font-size:1.15rem;line-height:1.4;margin:1.2rem 0 .3rem;overflow-wrap:anywhere}
-.back{position:fixed;top:1rem;left:1.1rem;color:#6f6555;text-decoration:none;font-size:.8rem}
-.back:hover{color:#f5a623}
-.byline{display:inline-flex;align-items:center;gap:.45rem;color:#f5a623;font-weight:700;
+.back{position:fixed;top:1rem;left:1.1rem;color:#6D7561;text-decoration:none;font-size:.8rem}
+.back:hover{color:#7BA428}
+.byline{display:inline-flex;align-items:center;gap:.45rem;color:#7BA428;font-weight:700;
 font-size:.95rem;text-decoration:none;margin:0 0 .35rem}
 .byline:hover{text-decoration:underline}
 .byline .ava{width:1.5rem;height:1.5rem;border-radius:50%;object-fit:cover;flex:none}
-.byline .ini{display:grid;place-items:center;color:#fffdf8;font-size:.7rem;font-weight:700}
-.meta{color:#6f6555;font-size:.8rem;margin:0 0 .8rem}
+.byline .ini{display:grid;place-items:center;color:#FAFCF5;font-size:.7rem;font-weight:700}
+.meta{color:#6D7561;font-size:.8rem;margin:0 0 .8rem}
 .chips{display:flex;flex-wrap:wrap;gap:.35rem;justify-content:center;margin-bottom:1.4rem}
-.chip{background:#e8e2d5;color:#6f6555;border-radius:99px;padding:.2rem .65rem;font-size:.72rem}
-.player{display:flex;align-items:center;gap:.8rem;background:#fffdf8;border:1px solid #e3dccc;
+.chip{background:#E7EBDD;color:#6D7561;border-radius:99px;padding:.2rem .65rem;font-size:.72rem}
+.player{display:flex;align-items:center;gap:.8rem;background:#FAFCF5;border:1px solid #DDE3D1;
 border-radius:14px;padding:.8rem .9rem;text-align:left}
-#pp{flex:none;width:2.9rem;height:2.9rem;border-radius:50%;border:none;background:#f5a623;color:#16130f;
+#pp{flex:none;width:2.9rem;height:2.9rem;border-radius:50%;border:none;background:#7BA428;color:#181A13;
 font-size:1rem;cursor:pointer;display:grid;place-items:center}
 .track{flex:1;min-width:0}
-.bar{height:6px;background:#e8e2d5;border-radius:3px;cursor:pointer;position:relative}
-#fill{height:100%;width:0;background:#f5a623;border-radius:3px}
-.times{display:flex;justify-content:space-between;color:#6f6555;font-size:.72rem;margin-top:.35rem}
+.bar{height:6px;background:#E7EBDD;border-radius:3px;cursor:pointer;position:relative}
+#fill{height:100%;width:0;background:#7BA428;border-radius:3px}
+.times{display:flex;justify-content:space-between;color:#6D7561;font-size:.72rem;margin-top:.35rem}
 .viz{flex:none;display:flex;align-items:flex-end;gap:2px;height:1.4rem}
-.viz i{width:3px;background:#f5a623;border-radius:2px;height:30%;animation:eq 1s ease-in-out infinite;
+.viz i{width:3px;background:#7BA428;border-radius:2px;height:30%;animation:eq 1s ease-in-out infinite;
 animation-play-state:paused}
 .viz i:nth-child(2){animation-delay:.15s}.viz i:nth-child(3){animation-delay:.3s}
 .viz i:nth-child(4){animation-delay:.45s}.viz i:nth-child(5){animation-delay:.6s}
 .playing .viz i{animation-play-state:running}
 @keyframes eq{0%,100%{height:25%}50%{height:100%}}
-footer{margin-top:1.6rem;font-size:.8rem;color:#6f6555}
-footer a{color:#16130f;text-decoration:none;font-weight:700}footer a:hover{color:#f5a623}
+footer{margin-top:1.6rem;font-size:.8rem;color:#6D7561}
+footer a{color:#181A13;text-decoration:none;font-weight:700}footer a:hover{color:#7BA428}
 </style></head><body>
 <a class="back" href="/${name}">← @${name}</a>
 <main>
@@ -259,10 +259,10 @@ const notFoundPage = (
 ) => `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Not found — oto</title>
 <link rel="icon" type="image/png" href="/icon.png">
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f1ea;color:#16130f;
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F4F7EE;color:#181A13;
 font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}main{padding:2rem;max-width:26rem}
-h1{font-size:1.2rem}.led{color:#f5a623}p{color:#6f6555;line-height:1.6;font-size:.9rem}
-a{color:#16130f;font-weight:700;text-decoration:none}a:hover{color:#f5a623}</style>
+h1{font-size:1.2rem}.led{color:#7BA428}p{color:#6D7561;line-height:1.6;font-size:.9rem}
+a{color:#181A13;font-weight:700;text-decoration:none}a:hover{color:#7BA428}</style>
 </head><body><main><h1><span class="led">◉</span> oto</h1>
 <p>${esc(message)}</p><p><a href="/">Made with ◉ oto</a></p>
 </main></body></html>`
@@ -361,19 +361,19 @@ function profilePage(
 <meta property="og:type" content="profile">
 <link rel="icon" type="image/png" href="/icon.png">
 <style>
-body{margin:0;min-height:100vh;background:#f4f1ea;color:#16130f;
+body{margin:0;min-height:100vh;background:#F4F7EE;color:#181A13;
 font-family:ui-monospace,'SF Mono',Menlo,monospace}
 main{padding:2rem 1.5rem;max-width:26rem;margin:0 auto;box-sizing:border-box}
-.brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:1.4rem;text-align:center}.led{color:#f5a623}
+.brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:1.4rem;text-align:center}.led{color:#7BA428}
 header{display:flex;align-items:center;gap:1rem;margin-bottom:1.4rem}
 .ava{width:4rem;height:4rem;border-radius:50%;object-fit:cover;flex:none;
 box-shadow:0 4px 14px rgba(22,19,15,.15)}
-.ini{display:grid;place-items:center;color:#fffdf8;font-size:1.6rem;font-weight:700}
+.ini{display:grid;place-items:center;color:#FAFCF5;font-size:1.6rem;font-weight:700}
 h1{font-size:1.15rem;margin:0;overflow-wrap:anywhere}
-.count{color:#6f6555;font-size:.8rem;margin-top:.25rem}
-.row{display:flex;align-items:center;gap:.8rem;background:#fffdf8;border:1px solid #e3dccc;
-border-radius:14px;padding:.65rem .8rem;margin-bottom:.6rem;text-decoration:none;color:#16130f}
-.row:hover{border-color:#f5a623}
+.count{color:#6D7561;font-size:.8rem;margin-top:.25rem}
+.row{display:flex;align-items:center;gap:.8rem;background:#FAFCF5;border:1px solid #DDE3D1;
+border-radius:14px;padding:.65rem .8rem;margin-bottom:.6rem;text-decoration:none;color:#181A13}
+.row:hover{border-color:#7BA428}
 .thumb{position:relative;flex:none;width:44px;height:44px;border-radius:10px;overflow:hidden}
 .thumb svg{display:block}
 .thumb .e{position:absolute;inset:0;display:grid;place-items:center;font-size:1.2rem;
@@ -381,9 +381,9 @@ text-shadow:0 1px 6px rgba(0,0,0,.25)}
 .info{min-width:0}
 .t{display:block;font-size:.9rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;
 white-space:nowrap}
-.m{display:block;color:#6f6555;font-size:.72rem;margin-top:.15rem}
-footer{margin-top:1.6rem;font-size:.8rem;color:#6f6555;text-align:center}
-footer a{color:#16130f;text-decoration:none;font-weight:700}footer a:hover{color:#f5a623}
+.m{display:block;color:#6D7561;font-size:.72rem;margin-top:.15rem}
+footer{margin-top:1.6rem;font-size:.8rem;color:#6D7561;text-align:center}
+footer a{color:#181A13;text-decoration:none;font-weight:700}footer a:hover{color:#7BA428}
 </style></head><body><main>
 <div class="brand"><span class="led">◉</span> oto</div>
 <header>${avatar}<div><h1>@${name}</h1><div class="count">${rows.length} audio${rows.length === 1 ? '' : 's'}</div></div></header>

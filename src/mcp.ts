@@ -9,7 +9,7 @@ import {
 } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 import { config } from './config.js'
-import { audioRepo, usageRepo, prefsRepo } from './db.js'
+import { audioRepo, usageRepo, prefsRepo, connectionRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
 import {
   synthesize,
@@ -433,8 +433,14 @@ export function buildServer(): McpServer {
         }
 
         const objectKey = `audio/${userId}/${hash}.${config.TTS_FORMAT}`
-        // Who made it: the connected MCP client's implementation info.
-        const clientName = clientDisplayName(server.server.getClientVersion()?.name)
+        // Who made it, from the OAuth client on THIS request. Not
+        // server.getClientVersion(): /mcp is stateless, so the server instance
+        // handling a tools/call never saw the initialize that would have set
+        // clientInfo — attribution came back null for most audios.
+        const clientId = (extra as ToolExtra).authInfo?.clientId
+        const clientName = clientDisplayName(
+          (clientId ? await connectionRepo.appName(clientId) : null) ?? undefined,
+        )
 
         if (cleanText.length > SYNC_THRESHOLD) {
           const chunks = chunkText(cleanText)

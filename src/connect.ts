@@ -14,36 +14,36 @@ const connectHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Connect — oto</title>
 <link rel="icon" type="image/png" href="/icon.png">
 <style>
-body{margin:0;background:#f4f1ea;color:#16130f;font-family:ui-monospace,'SF Mono',Menlo,monospace}
+body{margin:0;background:#F4F7EE;color:#181A13;font-family:ui-monospace,'SF Mono',Menlo,monospace}
 main{max-width:42rem;margin:0 auto;padding:2.5rem 1.5rem 4rem;line-height:1.65}
 .brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:2rem}
-.brand a{color:#16130f;text-decoration:none;font-weight:700}.brand a:hover{color:#f5a623}
-.led{color:#f5a623}
+.brand a{color:#181A13;text-decoration:none;font-weight:700}.brand a:hover{color:#7BA428}
+.led{color:#7BA428}
 h1{font-size:1.35rem;margin:0 0 .3rem}
-.sub{color:#6f6555;font-size:.85rem;margin:0 0 1.6rem}
-p,li{color:#3d372d;font-size:.9rem}
+.sub{color:#6D7561;font-size:.85rem;margin:0 0 1.6rem}
+p,li{color:#2C3025;font-size:.9rem}
 ol{padding-left:1.2rem}ol li{margin-bottom:.35rem}
 .copy{display:flex;align-items:stretch;gap:.5rem;margin:.8rem 0 1.2rem}
-.copy code{flex:1;min-width:0;background:#fffdf8;border:1px solid #e3dccc;border-radius:8px;
+.copy code{flex:1;min-width:0;background:#FAFCF5;border:1px solid #DDE3D1;border-radius:8px;
 padding:.6rem .8rem;font-size:.82rem;overflow-x:auto;white-space:pre}
-.copy button{flex:none;border:1px solid #f5a623;background:#f5a623;color:#16130f;border-radius:8px;
+.copy button{flex:none;border:1px solid #7BA428;background:#7BA428;color:#181A13;border-radius:8px;
 padding:0 .9rem;font-family:inherit;font-size:.8rem;cursor:pointer}
-.copy button:hover{background:#fffdf8}
+.copy button:hover{background:#FAFCF5}
 .tabs{margin-top:1.8rem}
 .tabs input{display:none}
-.tabs label{display:inline-block;padding:.4rem .8rem;margin:0 .3rem .6rem 0;border:1px solid #e3dccc;
-border-radius:8px;font-size:.85rem;cursor:pointer;color:#6f6555;background:#fffdf8}
-.tab{display:none;border:1px solid #e3dccc;border-radius:12px;background:#fffdf8;padding:1rem 1.2rem}
+.tabs label{display:inline-block;padding:.4rem .8rem;margin:0 .3rem .6rem 0;border:1px solid #DDE3D1;
+border-radius:8px;font-size:.85rem;cursor:pointer;color:#6D7561;background:#FAFCF5}
+.tab{display:none;border:1px solid #DDE3D1;border-radius:12px;background:#FAFCF5;padding:1rem 1.2rem}
 #t-claude:checked~label[for=t-claude],#t-code:checked~label[for=t-code],
 #t-gpt:checked~label[for=t-gpt],#t-cursor:checked~label[for=t-cursor]{
-border-color:#f5a623;color:#16130f;font-weight:700}
+border-color:#7BA428;color:#181A13;font-weight:700}
 #t-claude:checked~.tab-claude,#t-code:checked~.tab-code,
 #t-gpt:checked~.tab-gpt,#t-cursor:checked~.tab-cursor{display:block}
-.ask{color:#6f6555;font-size:.85rem;border-top:1px solid #e3dccc;padding-top:.8rem;margin-bottom:0}
-.ask em{color:#16130f;font-style:normal;font-weight:700}
-.note{font-size:.8rem;color:#6f6555}
-footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid #e3dccc;font-size:.82rem;color:#6f6555}
-footer a{color:#16130f;font-weight:700;text-decoration:none;margin-right:1rem}footer a:hover{color:#f5a623}
+.ask{color:#6D7561;font-size:.85rem;border-top:1px solid #DDE3D1;padding-top:.8rem;margin-bottom:0}
+.ask em{color:#181A13;font-style:normal;font-weight:700}
+.note{font-size:.8rem;color:#6D7561}
+footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid #DDE3D1;font-size:.82rem;color:#6D7561}
+footer a{color:#181A13;font-weight:700;text-decoration:none;margin-right:1rem}footer a:hover{color:#7BA428}
 </style></head><body><main>
 <div class="brand"><a href="/"><span class="led">◉</span> oto</a></div>
 <h1>Connect oto to your AI</h1>

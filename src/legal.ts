@@ -11,23 +11,23 @@ function page(title: string, bodyHtml: string): string {
 <title>${title} — oto</title>
 <link rel="icon" type="image/png" href="/icon.png">
 <style>
-body{margin:0;background:#f4f1ea;color:#16130f;font-family:ui-monospace,'SF Mono',Menlo,monospace}
+body{margin:0;background:#F4F7EE;color:#181A13;font-family:ui-monospace,'SF Mono',Menlo,monospace}
 main{max-width:42rem;margin:0 auto;padding:2.5rem 1.5rem 4rem;line-height:1.65}
 .brand{font-size:.95rem;letter-spacing:.04em;margin-bottom:2rem}
-.brand a{color:#16130f;text-decoration:none;font-weight:700}.brand a:hover{color:#f5a623}
-.led{color:#f5a623}
+.brand a{color:#181A13;text-decoration:none;font-weight:700}.brand a:hover{color:#7BA428}
+.led{color:#7BA428}
 h1{font-size:1.35rem;margin:0 0 .3rem}
-.date{color:#6f6555;font-size:.82rem;margin:0 0 2rem}
+.date{color:#6D7561;font-size:.82rem;margin:0 0 2rem}
 h2{font-size:1rem;margin:2rem 0 .5rem}
-p,li{color:#3d372d;font-size:.9rem}
+p,li{color:#2C3025;font-size:.9rem}
 ul{padding-left:1.2rem}
-a{color:#16130f;font-weight:700;text-decoration:none}a:hover{color:#f5a623}
+a{color:#181A13;font-weight:700;text-decoration:none}a:hover{color:#7BA428}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:.85rem;margin:.5rem 0 1rem}
-th,td{border:1px solid #e3dccc;padding:.45rem .6rem;text-align:left;color:#3d372d;vertical-align:top}
-th{color:#16130f}
-.todo{background:#fbe9c8;padding:.1rem .3rem}
-footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid #e3dccc;font-size:.82rem;color:#6f6555}
+th,td{border:1px solid #DDE3D1;padding:.45rem .6rem;text-align:left;color:#2C3025;vertical-align:top}
+th{color:#181A13}
+.todo{background:#E8F0D2;padding:.1rem .3rem}
+footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid #DDE3D1;font-size:.82rem;color:#6D7561}
 footer a{margin-right:1rem}
 </style></head><body><main>
 <div class="brand"><a href="/"><span class="led">◉</span> oto</a></div>

@@ -123,33 +123,69 @@ export function apiAuthMiddleware(): RequestHandler {
   }
 }
 
-/** RFC 9728 OAuth Protected Resource Metadata. */
+const authOrigin = new URL(config.BETTER_AUTH_URL).origin
+const oidcConfigUrl = `${authOrigin}/api/auth/.well-known/openid-configuration`
+
+/**
+ * Better Auth publishes its OAuth metadata at ONE place — the OIDC document
+ * under its own mount — and that document declares `issuer` as the bare origin.
+ * RFC 8414 §3.3 requires `issuer` to equal the authorization-server identifier
+ * the client started discovery from, and §3.1 puts the document under the
+ * ORIGIN's well-known path. So advertise the origin as the authorization
+ * server, and mirror the document here where the spec says to look. Clients
+ * that only try the OIDC path still find the original, unchanged.
+ *
+ * Mirrored rather than hand-written so it can't drift from what Better Auth
+ * actually serves; cached after the first success (registrations are static).
+ */
+let asMetadata: unknown = null
+async function authServerMetadata(): Promise<unknown> {
+  if (asMetadata === null) {
+    const res = await fetch(oidcConfigUrl)
+    if (!res.ok) throw new Error(`Better Auth OIDC metadata unavailable (${res.status})`)
+    asMetadata = await res.json()
+  }
+  return asMetadata
+}
+
+/** RFC 9728 OAuth Protected Resource Metadata + RFC 8414 Authorization Server Metadata. */
 export function wellKnownRouter(): Router {
   const router = Router()
-  // Better Auth serves OAuth Authorization Server metadata (RFC 8414) under its
-  // handler mount. The issuer identifier is the auth base path; Claude appends
-  // /.well-known/oauth-authorization-server to discover the registration,
-  // authorize, and token endpoints.
-  // ponytail: confirm this exact issuer string against a live Claude handshake;
-  // adjust to whatever BA advertises as `issuer` in its AS metadata if it differs.
-  const authorizationServer = `${new URL(config.BETTER_AUTH_URL).origin}/api/auth`
   const metadata = {
     resource: config.MCP_SERVER_URL,
-    authorization_servers: [authorizationServer],
+    // Origin first (spec-correct, matches the advertised issuer); the legacy
+    // path-based identifier stays as a fallback for anything already using it.
+    authorization_servers: [authOrigin, `${authOrigin}/api/auth`],
     bearer_methods_supported: ['header'],
     resource_name: 'oto',
     scopes_supported: [],
   }
-  const handler: RequestHandler = (_req, res) => {
+  const publicJson: RequestHandler = (_req, res, next) => {
     res
       .set('Cache-Control', 'public, max-age=3600')
       // Public metadata; browser-based MCP clients fetch it cross-origin.
       .set('Access-Control-Allow-Origin', '*')
-      .json(metadata)
+    next()
   }
-  router.get('/.well-known/oauth-protected-resource', handler)
+  const handler: RequestHandler = (_req, res) => {
+    res.json(metadata)
+  }
+  router.get('/.well-known/oauth-protected-resource', publicJson, handler)
   // Some clients resolve metadata relative to the resource path (/mcp).
-  router.get('/.well-known/oauth-protected-resource/mcp', handler)
+  router.get('/.well-known/oauth-protected-resource/mcp', publicJson, handler)
+
+  // RFC 8414 §3.1: <origin>/.well-known/oauth-authorization-server, plus the
+  // path-insertion form for the legacy /api/auth identifier.
+  const asHandler: RequestHandler = async (_req, res) => {
+    try {
+      res.json(await authServerMetadata())
+    } catch (err) {
+      console.error('Authorization server metadata failed:', err)
+      res.status(502).json({ error: 'authorization_server_metadata_unavailable' })
+    }
+  }
+  router.get('/.well-known/oauth-authorization-server', publicJson, asHandler)
+  router.get('/.well-known/oauth-authorization-server/api/auth', publicJson, asHandler)
   return router
 }
 

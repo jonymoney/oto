@@ -16,6 +16,7 @@ import { shareRouter, shortShareRouter } from './share.js'
 import { previewsRouter } from './previews.js'
 import { apiRouter } from './api.js'
 import { handleWebhookEvent } from './billing.js'
+import { drainGenerationJobs } from './jobs.js'
 
 const app = express()
 
@@ -87,11 +88,11 @@ const authCallbackHtml = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Opening oto…</title><link rel="icon" type="image/png" href="/icon.png">
 <style>
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16130f;color:#e8e0d4;
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#181A13;color:#EEF1E5;
        font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}
-  main{padding:2rem;max-width:30rem}h1{font-size:1.4rem}.led{color:#f5a623}
-  a{display:inline-block;margin-top:1rem;padding:.6rem 1.1rem;border:1px solid #f5a623;border-radius:6px;
-    color:#f5a623;text-decoration:none}p{color:#b8ad9c;line-height:1.6}
+  main{padding:2rem;max-width:30rem}h1{font-size:1.4rem}.led{color:#AACF53}
+  a{display:inline-block;margin-top:1rem;padding:.6rem 1.1rem;border:1px solid #AACF53;border-radius:6px;
+    color:#AACF53;text-decoration:none}p{color:#99A189;line-height:1.6}
 </style></head><body><main>
   <h1><span class="led">◉</span> oto</h1>
   <p id="msg">Opening the oto app…</p>
@@ -186,11 +187,20 @@ const httpServer = app.listen(config.PORT, '0.0.0.0', () => {
   console.log(`oto MCP server listening on :${config.PORT} (auth: ${config.AUTH_MODE})`)
 })
 
-// Railway sends SIGTERM on redeploy; drain in-flight requests before exiting.
+// A rejected promise nobody handled terminates Node by default. One dropped
+// .catch in a fire-and-forget path must not take the whole server down.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason)
+})
+
+// Railway sends SIGTERM on redeploy; drain in-flight requests, then give
+// background generation a window to finish before it gets marked failed.
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, draining…')
   httpServer.close(() => {
-    void closeDb().finally(() => process.exit(0))
+    void drainGenerationJobs(15_000)
+      .finally(() => closeDb())
+      .finally(() => process.exit(0))
   })
-  setTimeout(() => process.exit(0), 10_000).unref()
+  setTimeout(() => process.exit(0), 25_000).unref()
 })

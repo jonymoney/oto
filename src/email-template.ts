@@ -5,14 +5,16 @@
 const MONO = "ui-monospace, 'SF Mono', Menlo, monospace"
 const SANS = "-apple-system, system-ui, 'Segoe UI', sans-serif"
 
-// Brand palette (light-background emails).
-const PAGE_BG = '#f6f4ee'
-const CARD_BG = '#fffdf8'
-const TEXT_PRIMARY = '#211e19'
-const TEXT_SECONDARY = '#6e6759'
-const TEXT_TERTIARY = '#9a9181'
-const BORDER = '#e0dbce'
-const ACCENT = '#e08600'
+// Brand palette, light values only — docs/brand/tokens.json. Emails render on
+// whatever ground the client picks, so the dark ramp never applies here.
+const PAGE_BG = '#F4F7EE'
+const CARD_BG = '#FAFCF5'
+const TEXT_PRIMARY = '#181A13'
+const TEXT_SECONDARY = '#6D7561'
+const TEXT_TERTIARY = '#8F977F'
+const BORDER = '#DDE3D1'
+// accent_text: moegi darkened for legibility at text sizes.
+const ACCENT = '#5C7D1E'
 
 export interface RenderEmailOptions {
   heading: string

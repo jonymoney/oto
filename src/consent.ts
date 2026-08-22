@@ -14,17 +14,17 @@ import { pool } from './db.js'
 function page(title: string, body: string, script = ''): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#16130f;color:#e8e0d4;
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#181A13;color:#EEF1E5;
 font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center}main{padding:2rem;max-width:34rem}
-h1{font-size:1.4rem;letter-spacing:.04em}.led{color:#f5a623}p{line-height:1.6;color:#b8ad9c;font-size:.92rem}
-input{background:#0f0d0a;color:#e8e0d4;border:1px solid #3a342b;border-radius:8px;padding:.7rem .9rem;
+h1{font-size:1.4rem;letter-spacing:.04em}.led{color:#AACF53}p{line-height:1.6;color:#99A189;font-size:.92rem}
+input{background:#12140E;color:#EEF1E5;border:1px solid #2C3025;border-radius:8px;padding:.7rem .9rem;
 font:inherit;width:100%;box-sizing:border-box;text-align:center;margin:.4rem 0}
-input:focus{outline:none;border-color:#f5a623}
-button{background:#f5a623;color:#16130f;border:none;border-radius:8px;padding:.7rem 1.4rem;font:inherit;
+input:focus{outline:none;border-color:#AACF53}
+button{background:#AACF53;color:#181A13;border:none;border-radius:8px;padding:.7rem 1.4rem;font:inherit;
 font-weight:700;cursor:pointer;margin:.4rem .3rem}button:disabled{opacity:.5;cursor:default}
-button.ghost{background:none;color:#b8ad9c;border:1px solid #3a342b}
-.err{color:#e06c5b;min-height:1.2em;font-size:.85rem}ul{list-style:none;padding:0}
-li{color:#b8ad9c;font-size:.92rem;line-height:1.7}li::before{content:'✓ ';color:#f5a623}
+button.ghost{background:none;color:#99A189;border:1px solid #2C3025}
+.err{color:#FF7D92;min-height:1.2em;font-size:.85rem}ul{list-style:none;padding:0}
+li{color:#99A189;font-size:.92rem;line-height:1.7}li::before{content:'✓ ';color:#AACF53}
 .hide{display:none}</style>
 </head><body><main><h1><span class="led">◉</span> oto — ${title}</h1>${body}</main>
 <script>${script}</script></body></html>`
@@ -81,7 +81,7 @@ const consentBody = `
 <ul id="scopes"></ul>
 <div><button id="deny" class="ghost">Deny</button><button id="approve">Approve</button></div>
 <p style="font-size:.8rem;opacity:.7"><span id="who"></span>
-<a href="#" id="switch" style="color:#b8ad9c">Not you? Switch account</a></p>
+<a href="#" id="switch" style="color:#99A189">Not you? Switch account</a></p>
 <p class="err" id="err"></p>`
 
 const consentScript = `

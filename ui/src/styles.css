@@ -21,19 +21,21 @@ body {
   --mono: var(--font-mono, ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', monospace);
   --sans: var(--font-sans, -apple-system, system-ui, 'Segoe UI', sans-serif);
 
-  --surface: var(--color-background-secondary, #f6f4ee);
-  --surface-raised: var(--color-background-primary, #fffdf8);
-  --ink: var(--color-text-primary, #211e19);
-  --ink-2: var(--color-text-secondary, #6e6759);
-  --ink-3: var(--color-text-tertiary, #9a9181);
-  --line: var(--color-border-primary, #e0dbce);
-  --line-2: var(--color-border-secondary, #eae5d8);
-  --danger: var(--color-text-danger, #c2402a);
-  --danger-solid: #c2402a;
+  /* Brand palette — docs/brand/tokens.json (byakuroku ground, moegi accent).
+     Keep in sync with ios/Sources/Theme.swift and public/landing.html. */
+  --surface: var(--color-background-secondary, #f4f7ee);
+  --surface-raised: var(--color-background-primary, #fafcf5);
+  --ink: var(--color-text-primary, #181a13);
+  --ink-2: var(--color-text-secondary, #6d7561);
+  --ink-3: var(--color-text-tertiary, #8f977f);
+  --line: var(--color-border-primary, #dde3d1);
+  --line-2: var(--color-border-secondary, #e7ebdd);
+  --danger: var(--color-text-danger, #c22645);
+  --danger-solid: #c22645;
 
-  /* the VU-meter LED */
-  --accent: #e08600;
-  --accent-bright: #ff9d0a;
+  /* the VU-meter LED — moegi, ramped on its own hue */
+  --accent: #7ba428;
+  --accent-bright: #aacf53;
   --accent-dim: color-mix(in srgb, var(--accent) 22%, transparent);
 
   font-family: var(--sans);
@@ -44,17 +46,17 @@ body {
 }
 
 .oto[data-theme='dark'] {
-  --surface: var(--color-background-secondary, #23211e);
-  --surface-raised: var(--color-background-primary, #2b2926);
-  --ink: var(--color-text-primary, #ece8df);
-  --ink-2: var(--color-text-secondary, #a39c8e);
-  --ink-3: var(--color-text-tertiary, #756f63);
-  --line: var(--color-border-primary, #3a3733);
-  --line-2: var(--color-border-secondary, #33302c);
-  --danger: var(--color-text-danger, #ff8a70);
-  --danger-solid: #b54430;
-  --accent: #ffb02e;
-  --accent-bright: #ffc35c;
+  --surface: var(--color-background-secondary, #181a13);
+  --surface-raised: var(--color-background-primary, #1f221a);
+  --ink: var(--color-text-primary, #eef1e5);
+  --ink-2: var(--color-text-secondary, #99a189);
+  --ink-3: var(--color-text-tertiary, #6f7663);
+  --line: var(--color-border-primary, #2c3025);
+  --line-2: var(--color-border-secondary, #242820);
+  --danger: var(--color-text-danger, #ff7d92);
+  --danger-solid: #c22645;
+  --accent: #aacf53;
+  --accent-bright: #c0de7a;
 }
 
 /* ───────────────────────── panel chassis ───────────────────────── */
@@ -458,13 +460,13 @@ body {
 }
 
 .oto-render-lit {
-  color: #ffb02e;
-  text-shadow: 0 0 5px rgba(255, 176, 46, 0.5), 0 0 14px rgba(255, 157, 10, 0.18);
+  color: #aacf53;
+  text-shadow: 0 0 5px rgba(170, 207, 83, 0.5), 0 0 14px rgba(123, 164, 40, 0.18);
 }
 
 .oto-render-head {
-  color: #ffd584;
-  text-shadow: 0 0 6px rgba(255, 213, 132, 0.85), 0 0 18px rgba(255, 157, 10, 0.4);
+  color: #d2e79a;
+  text-shadow: 0 0 6px rgba(210, 231, 154, 0.85), 0 0 18px rgba(170, 207, 83, 0.4);
   animation: oto-render-head 0.9s ease-in-out infinite alternate;
 }
 
@@ -698,7 +700,7 @@ body {
   border-radius: 6px;
   padding: 3px 8px;
   background: var(--danger-solid);
-  color: #fff8f2;
+  color: #fafcf5;
   font: inherit;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -915,7 +917,7 @@ body {
   border-radius: 10px;
   overflow: hidden;
   /* a dark glass screen set into the chassis — same in both themes */
-  background: radial-gradient(120% 90% at 50% 44%, #1b150c 0%, #0d0b07 68%, #070604 100%);
+  background: radial-gradient(120% 90% at 50% 44%, #12160d 0%, #0a0c07 68%, #050604 100%);
 }
 
 .oto-vortex-screen {
@@ -928,9 +930,9 @@ body {
   font-size: 12px;
   line-height: 12px;
   letter-spacing: 0;
-  /* phosphor amber, independent of theme — the hue pulse swings around it */
-  color: #ffb02e;
-  text-shadow: 0 0 5px rgba(255, 176, 46, 0.55), 0 0 18px rgba(255, 157, 10, 0.2);
+  /* phosphor moegi, independent of theme — the hue pulse swings around it */
+  color: #aacf53;
+  text-shadow: 0 0 5px rgba(170, 207, 83, 0.55), 0 0 18px rgba(123, 164, 40, 0.2);
   user-select: none;
   animation: oto-vortex-hue 11s ease-in-out infinite;
   will-change: filter;
