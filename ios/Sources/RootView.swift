@@ -16,6 +16,22 @@ private struct DockedMiniPlayer: ViewModifier {
     }
 }
 
+/// iOS 26 draws the accessory capsule whenever the modifier is attached — an
+/// empty builder still leaves a blank glass bar above the tab bar. The modifier
+/// itself has to come off when there's no audio, and there is no
+/// `tabViewBottomAccessory(isPresented:)` overload to do it for us.
+@available(iOS 26.0, *)
+private struct MiniPlayerAccessory: ViewModifier {
+    let shows: Bool
+    func body(content: Content) -> some View {
+        if shows {
+            content.tabViewBottomAccessory { MiniPlayer(inAccessory: true) }
+        } else {
+            content
+        }
+    }
+}
+
 struct RootView: View {
     private enum Tab { case library, explore, settings }
 
@@ -66,15 +82,8 @@ struct RootView: View {
     @ViewBuilder private var signedIn: some View {
         if #available(iOS 26.0, *) {
             // System slots the mini-player above the tab bar (Music-style capsule).
-            // Verified on the iOS 26.0 simulator: when the builder's `if` is
-            // false the system removes the capsule entirely (no empty accessory,
-            // no reserved space) and restores it when an item loads — so keep
-            // the condition here, inside the builder, not around the modifier
-            // (branching around TabView would reset tab/scroll state).
             TabView(selection: $tab) { tabs(docked: false) }
-                .tabViewBottomAccessory {
-                    if player.showsMiniPlayer { MiniPlayer(inAccessory: true) }
-                }
+                .modifier(MiniPlayerAccessory(shows: player.showsMiniPlayer))
                 .tabBarMinimizeBehavior(.onScrollDown)
         } else {
             TabView(selection: $tab) { tabs(docked: true) }
