@@ -186,6 +186,7 @@ export function useAudioEngine(app: App | null): AudioEngine {
       duration: track.durationSec,
       busy: true,
       error: null,
+      speed: speedRef.current,
     })
     const audio = audioRef.current
     if (!audio) return

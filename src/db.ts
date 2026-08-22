@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { Pool } from 'pg'
 import { config } from './config.js'
-import type { AudioRecord, AudioStatus, NewAudio, Visibility } from './types.js'
+import { coerceCoverStyle } from './types.js'
+import type { AudioRecord, AudioStatus, CoverStyle, NewAudio, Visibility } from './types.js'
 
 interface AudioRow {
   id: string
@@ -231,6 +232,8 @@ export async function initDb(): Promise<void> {
   )
   if (usersReg[0]?.reg) {
     await pool.query('alter table users add column if not exists username text')
+    // User-selectable generative cover style (null → 'classic').
+    await pool.query('alter table users add column if not exists cover_style text')
     await pool.query(
       'create unique index if not exists users_username_idx on users (username) where username is not null',
     )
@@ -489,9 +492,9 @@ export const audioRepo = {
     excludeUserId: string,
     limit = 30,
     offset = 0,
-  ): Promise<Array<AudioRecord & { ownerUsername: string }>> {
-    const { rows } = await pool.query<AudioRow & { owner_username: string }>(
-      `select ${qcols('a')}, u.username as owner_username
+  ): Promise<Array<AudioRecord & { ownerUsername: string; ownerCoverStyle: CoverStyle }>> {
+    const { rows } = await pool.query<AudioRow & { owner_username: string; owner_cover_style: string | null }>(
+      `select ${qcols('a')}, u.username as owner_username, u.cover_style as owner_cover_style
          from audios a join users u on u.id = a.user_id
         where a.visibility = 'public' and a.status = 'ready'
           and a.user_id <> $1 and u.username is not null
@@ -499,7 +502,11 @@ export const audioRepo = {
         limit $2 offset $3`,
       [excludeUserId, Math.min(Math.max(Math.floor(limit), 1), 200), Math.max(offset, 0)],
     )
-    return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
+    return rows.map((r) => ({
+      ...mapRow(r),
+      ownerUsername: r.owner_username,
+      ownerCoverStyle: coerceCoverStyle(r.owner_cover_style),
+    }))
   },
 
   /** Fire-and-forget anonymous play counter — aggregate integer only, no per-user rows. */
@@ -515,9 +522,9 @@ export const audioRepo = {
   async listFolloweesRecent(
     userId: string,
     limit = 20,
-  ): Promise<Array<AudioRecord & { ownerUsername: string }>> {
-    const { rows } = await pool.query<AudioRow & { owner_username: string }>(
-      `select ${qcols('a')}, u.username as owner_username
+  ): Promise<Array<AudioRecord & { ownerUsername: string; ownerCoverStyle: CoverStyle }>> {
+    const { rows } = await pool.query<AudioRow & { owner_username: string; owner_cover_style: string | null }>(
+      `select ${qcols('a')}, u.username as owner_username, u.cover_style as owner_cover_style
          from follows f
          join audios a on a.user_id = f.followee_id
          join users u on u.id = f.followee_id
@@ -532,7 +539,11 @@ export const audioRepo = {
         limit $2`,
       [userId, Math.min(Math.max(Math.floor(limit), 1), 200)],
     )
-    return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
+    return rows.map((r) => ({
+      ...mapRow(r),
+      ownerUsername: r.owner_username,
+      ownerCoverStyle: coerceCoverStyle(r.owner_cover_style),
+    }))
   },
 
   /** Top public tags (lowercased), only tags carried by at least `min` audios. */
@@ -556,9 +567,9 @@ export const audioRepo = {
   async listByTag(
     tag: string,
     limit = 50,
-  ): Promise<Array<AudioRecord & { ownerUsername: string }>> {
-    const { rows } = await pool.query<AudioRow & { owner_username: string }>(
-      `select ${qcols('a')}, u.username as owner_username
+  ): Promise<Array<AudioRecord & { ownerUsername: string; ownerCoverStyle: CoverStyle }>> {
+    const { rows } = await pool.query<AudioRow & { owner_username: string; owner_cover_style: string | null }>(
+      `select ${qcols('a')}, u.username as owner_username, u.cover_style as owner_cover_style
          from audios a join users u on u.id = a.user_id
         where a.visibility = 'public' and a.status = 'ready' and u.username is not null
           and exists (select 1 from unnest(a.tags) t where lower(t) = $1)
@@ -566,7 +577,11 @@ export const audioRepo = {
         limit $2`,
       [tag.toLowerCase(), Math.min(Math.max(Math.floor(limit), 1), 200)],
     )
-    return rows.map((r) => ({ ...mapRow(r), ownerUsername: r.owner_username }))
+    return rows.map((r) => ({
+      ...mapRow(r),
+      ownerUsername: r.owner_username,
+      ownerCoverStyle: coerceCoverStyle(r.owner_cover_style),
+    }))
   },
 
   /** The user's own audios UNION the audios they saved, newest first. */
@@ -615,9 +630,16 @@ export const audioRepo = {
     )
   },
 
+  /**
+   * Fails a generation. Guarded on 'processing': a job that already finished
+   * must never be flipped to error behind its own back — the shutdown drain
+   * marks whatever it believes is still running, and that read can race a job
+   * completing in the same instant.
+   */
   async markError(id: string, message: string): Promise<void> {
     await pool.query(
-      `update audios set status = 'error', error_message = $2, updated_at = now() where id = $1`,
+      `update audios set status = 'error', error_message = $2, updated_at = now()
+        where id = $1 and status = 'processing'`,
       [id, message],
     )
   },
@@ -684,13 +706,15 @@ export interface UserProfileRow {
   username: string | null
   /** Bucket object key of the avatar (Better Auth `image` column), or null. */
   image: string | null
+  /** Chosen generative cover style (null → 'classic'). */
+  coverStyle: string | null
 }
 
-// Better Auth owns the `users` table; oto only reads it + manages `username`/`image`.
+// Better Auth owns the `users` table; oto only reads it + manages `username`/`image`/`cover_style`.
 export const userRepo = {
   async get(userId: string): Promise<UserProfileRow | null> {
     const { rows } = await pool.query<UserProfileRow>(
-      'select id, email, username, image from users where id = $1',
+      'select id, email, username, image, cover_style as "coverStyle" from users where id = $1',
       [userId],
     )
     return rows[0] ?? null
@@ -698,7 +722,7 @@ export const userRepo = {
 
   async findByUsername(username: string): Promise<UserProfileRow | null> {
     const { rows } = await pool.query<UserProfileRow>(
-      'select id, email, username, image from users where username = $1',
+      'select id, email, username, image, cover_style as "coverStyle" from users where username = $1',
       [username],
     )
     return rows[0] ?? null
@@ -712,6 +736,20 @@ export const userRepo = {
   /** Stores the avatar's bucket object key in Better Auth's `image` column. */
   async setImage(userId: string, key: string): Promise<void> {
     await pool.query('update users set image = $2 where id = $1', [userId, key])
+  },
+
+  async setCoverStyle(userId: string, style: CoverStyle): Promise<void> {
+    await pool.query('update users set cover_style = $2 where id = $1', [userId, style])
+  },
+
+  /** Cover styles for a set of user ids in one query: userId -> CoverStyle. */
+  async coverStyles(userIds: string[]): Promise<Map<string, CoverStyle>> {
+    if (userIds.length === 0) return new Map()
+    const { rows } = await pool.query<{ id: string; cover_style: string | null }>(
+      'select id, cover_style from users where id = any($1)',
+      [userIds],
+    )
+    return new Map(rows.map((r) => [r.id, coerceCoverStyle(r.cover_style)]))
   },
 
   /** Username prefix search (people picker). Only users who have a username. */

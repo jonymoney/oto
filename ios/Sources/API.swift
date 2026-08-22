@@ -21,9 +21,12 @@ struct AudioItem: Identifiable, Codable, Hashable {
     let visibility: String?
     // MCP client that generated the audio (e.g. "Claude"), when known.
     let clientName: String?
+    // Creator's cover style ("classic"/"ink"/"halftone") — covers always render
+    // in the CREATOR's style, so this rides along with every audio payload.
+    let coverStyle: String
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility, clientName
+        case id, title, durationSec, voice, charCount, createdAt, status, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility, clientName, coverStyle
     }
 
     init(from decoder: Decoder) throws {
@@ -46,6 +49,8 @@ struct AudioItem: Identifiable, Codable, Hashable {
         owner = try c.decodeIfPresent(String.self, forKey: .owner)
         visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
         clientName = try c.decodeIfPresent(String.self, forKey: .clientName)
+        // Default keeps the app working against servers that predate coverStyle.
+        coverStyle = try c.decodeIfPresent(String.self, forKey: .coverStyle) ?? "classic"
     }
 }
 
@@ -73,9 +78,10 @@ struct AudioDetail: Decodable {
     let owner: String?
     let visibility: String?
     let clientName: String?
+    let coverStyle: String
 
     enum CodingKeys: String, CodingKey {
-        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility, clientName
+        case id, title, durationSec, voice, createdAt, status, audioUrl, summary, emoji, language, mood, tags, shareUrl, positionSec, playedAt, owner, visibility, clientName, coverStyle
     }
 
     init(from decoder: Decoder) throws {
@@ -98,6 +104,7 @@ struct AudioDetail: Decodable {
         owner = try c.decodeIfPresent(String.self, forKey: .owner)
         visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
         clientName = try c.decodeIfPresent(String.self, forKey: .clientName)
+        coverStyle = try c.decodeIfPresent(String.self, forKey: .coverStyle) ?? "classic"
     }
 }
 

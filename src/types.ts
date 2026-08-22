@@ -1,6 +1,17 @@
 export type AudioStatus = 'processing' | 'ready' | 'error'
 
 /**
+ * User-selectable generative cover style. An audio always renders in its
+ * CREATOR's chosen style, everywhere. Unknown/absent → 'classic'.
+ */
+export const COVER_STYLES = ['classic', 'ink', 'halftone'] as const
+export type CoverStyle = (typeof COVER_STYLES)[number]
+
+export function coerceCoverStyle(v: string | null | undefined): CoverStyle {
+  return (COVER_STYLES as readonly string[]).includes(v ?? '') ? (v as CoverStyle) : 'classic'
+}
+
+/**
  * Who can DISCOVER this audio in listings (profiles, explore). Share links are
  * capability URLs and keep working regardless of visibility.
  */
@@ -73,6 +84,8 @@ export type PlayerPayload = {
   emoji: string | null
   /** One-word mood tinting the generative cover. */
   mood: string | null
+  /** The creator's chosen cover style — how the generative cover is drawn. */
+  coverStyle: CoverStyle
   /** True when the audio was served from storage instead of generated. */
   deduped: boolean
 }
@@ -92,6 +105,8 @@ export type HistoryItem = {
   emoji: string | null
   /** One-word mood tinting the generative cover. */
   mood: string | null
+  /** The creator's chosen cover style — how the generative cover is drawn. */
+  coverStyle: CoverStyle
 }
 
 /** structuredContent payload while a long generation runs in the background. */

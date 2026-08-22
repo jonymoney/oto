@@ -9,7 +9,7 @@ import {
 } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 import { config } from './config.js'
-import { audioRepo, usageRepo, prefsRepo, connectionRepo } from './db.js'
+import { audioRepo, usageRepo, prefsRepo, connectionRepo, userRepo } from './db.js'
 import { putAudio, presignAudioUrl, deleteAudioObject } from './storage.js'
 import {
   synthesize,
@@ -24,7 +24,9 @@ import type { TtsProvider } from './tts.js'
 import { startGenerationJob } from './jobs.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { ensureSlug } from './share.js'
+import { coerceCoverStyle } from './types.js'
 import type {
+  CoverStyle,
   AudioRecord,
   HistoryItem,
   HistoryPayload,
@@ -84,6 +86,7 @@ const playerPayloadShape = {
   summary: z.string().nullable(),
   emoji: z.string().nullable(),
   mood: z.string().nullable(),
+  coverStyle: z.string(),
   deduped: z.boolean(),
 }
 
@@ -113,6 +116,7 @@ const historyPayloadShape = {
       summary: z.string().nullable(),
       emoji: z.string().nullable(),
       mood: z.string().nullable(),
+      coverStyle: z.string(),
     }),
   ),
   total: z.number(),
@@ -176,6 +180,11 @@ async function isQuotaExempt(userId: string, email?: string): Promise<boolean> {
   return usageRepo.isUnlimited(userId)
 }
 
+/** The creator's chosen cover style (rec.userId, not the caller). */
+async function coverStyleOf(userId: string): Promise<CoverStyle> {
+  return coerceCoverStyle((await userRepo.get(userId))?.coverStyle)
+}
+
 async function playerPayload(rec: AudioRecord, deduped: boolean): Promise<PlayerPayload> {
   return {
     kind: 'audio',
@@ -188,6 +197,7 @@ async function playerPayload(rec: AudioRecord, deduped: boolean): Promise<Player
     summary: rec.summary,
     emoji: rec.emoji,
     mood: rec.mood,
+    coverStyle: await coverStyleOf(rec.userId),
     deduped,
   }
 }
@@ -205,7 +215,7 @@ function processingPayload(rec: AudioRecord): ProcessingPayload {
   }
 }
 
-function historyItem(rec: AudioRecord): HistoryItem {
+function historyItem(rec: AudioRecord, coverStyle: CoverStyle): HistoryItem {
   return {
     id: rec.id,
     title: rec.title,
@@ -217,6 +227,7 @@ function historyItem(rec: AudioRecord): HistoryItem {
     summary: rec.summary,
     emoji: rec.emoji,
     mood: rec.mood,
+    coverStyle,
   }
 }
 
@@ -229,7 +240,13 @@ function errorResult(err: unknown) {
 
 async function getHistory(userId: string, limit?: number, offset?: number) {
   const { items, total } = await audioRepo.listByUser(userId, limit, offset)
-  const payload: HistoryPayload = { kind: 'history', items: items.map(historyItem), total }
+  // History lists the caller's own audios, so one style covers every item.
+  const style = await coverStyleOf(userId)
+  const payload: HistoryPayload = {
+    kind: 'history',
+    items: items.map((rec) => historyItem(rec, style)),
+    total,
+  }
   return {
     content: [
       {

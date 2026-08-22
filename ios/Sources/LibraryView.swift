@@ -461,7 +461,7 @@ struct CoverThumb: View {
     var size: CGFloat
 
     var body: some View {
-        CoverView(id: item.id, mood: item.mood, size: size)
+        CoverView(id: item.id, mood: item.mood, size: size, style: item.coverStyle, emoji: item.emoji)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
                 if let e = item.emoji, !e.isEmpty {

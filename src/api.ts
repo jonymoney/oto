@@ -20,7 +20,8 @@ import { createCheckoutSession, createPortalSession } from './billing.js'
 import { previewsRouter } from './previews.js'
 import { recommendationsFor } from './recs.js'
 import { usernameFor, ensureSlug, shareUrlFor, RESERVED_USERNAMES } from './share.js'
-import type { AudioRecord, Visibility } from './types.js'
+import { COVER_STYLES, coerceCoverStyle } from './types.js'
+import type { AudioRecord, CoverStyle, Visibility } from './types.js'
 
 // REST JSON API for native clients (iOS). Mounts behind the same
 // authMiddleware() as /mcp, so req.auth carries the verified Better Auth user.
@@ -65,6 +66,7 @@ const isUniqueViolation = (err: unknown) =>
 async function detail(rec: AudioRecord) {
   return {
     ...listItem(rec),
+    coverStyle: coerceCoverStyle((await userRepo.get(rec.userId))?.coverStyle),
     shareUrl: shareUrlFor(await usernameFor(rec.userId), await ensureSlug(rec)),
     audioUrl: rec.status === 'ready' ? await presignAudioUrl(rec.objectKey) : null,
   }
@@ -94,11 +96,14 @@ export function apiRouter(): Router {
         if (!names.has(uid)) names.set(uid, await usernameFor(uid))
         return names.get(uid)!
       }
+      // Creator cover styles in one grouped query (no per-item lookup).
+      const styles = await userRepo.coverStyles([...new Set(items.map((r) => r.userId))])
       const out = []
       for (const rec of items) {
         const ownerName = await nameOf(rec.userId)
         out.push({
           ...listItem(rec),
+          coverStyle: styles.get(rec.userId) ?? 'classic',
           owner: rec.userId === userId ? null : ownerName,
           shareUrl: shareUrlFor(ownerName, await ensureSlug(rec)),
         })
@@ -256,10 +261,16 @@ export function apiRouter(): Router {
 
   // ── Identity ──────────────────────────────────────────────────────────────
 
-  const mePayload = async (user: { email: string; username: string | null; image: string | null }) => ({
+  const mePayload = async (user: {
+    email: string
+    username: string | null
+    image: string | null
+    coverStyle: string | null
+  }) => ({
     email: user.email,
     username: user.username, // null until derived/claimed — NOT lazily derived here
     avatarUrl: await avatarUrl(user.image),
+    coverStyle: coerceCoverStyle(user.coverStyle),
   })
 
   router.get(
@@ -276,16 +287,38 @@ export function apiRouter(): Router {
     '/me',
     wrap(async (req, res) => {
       const userId = userIdFrom({ authInfo: req.auth })
-      const { username } = (req.body ?? {}) as { username?: unknown }
-      if (typeof username !== 'string') return res.status(400).json({ error: 'invalid' })
-      const name = username.toLowerCase()
-      const reason = usernameReason(name)
-      if (reason) return res.status(400).json({ error: reason })
-      try {
-        await userRepo.setUsername(userId, name)
-      } catch (err) {
-        if (isUniqueViolation(err)) return res.status(409).json({ error: 'taken' })
-        throw err
+      const { username, coverStyle } = (req.body ?? {}) as {
+        username?: unknown
+        coverStyle?: unknown
+      }
+      if (username === undefined && coverStyle === undefined) {
+        return res.status(400).json({ error: 'invalid' })
+      }
+      // Validate everything before applying anything.
+      if (
+        coverStyle !== undefined &&
+        (typeof coverStyle !== 'string' || !COVER_STYLES.includes(coverStyle as CoverStyle))
+      ) {
+        return res
+          .status(400)
+          .json({ error: `coverStyle must be one of: ${COVER_STYLES.join(', ')}` })
+      }
+      const name = typeof username === 'string' ? username.toLowerCase() : null
+      if (username !== undefined) {
+        if (name === null) return res.status(400).json({ error: 'invalid' })
+        const reason = usernameReason(name)
+        if (reason) return res.status(400).json({ error: reason })
+      }
+      if (coverStyle !== undefined) {
+        await userRepo.setCoverStyle(userId, coverStyle as CoverStyle)
+      }
+      if (name !== null) {
+        try {
+          await userRepo.setUsername(userId, name)
+        } catch (err) {
+          if (isUniqueViolation(err)) return res.status(409).json({ error: 'taken' })
+          throw err
+        }
       }
       const user = await userRepo.get(userId)
       if (!user) return res.status(404).json({ error: 'Not found' })
@@ -450,10 +483,12 @@ export function apiRouter(): Router {
               .relation(userId, target.id)
               .then((r) => allowedVisibilities(r.viewerFollowsOwner, r.ownerFollowsViewer))
       const recs = await audioRepo.listVisibleByUser(target.id, vis, 50, 0)
+      const targetStyle = coerceCoverStyle(target.coverStyle)
       const items = []
       for (const rec of recs) {
         items.push({
           ...listItem(rec),
+          coverStyle: targetStyle,
           owner: target.username,
           shareUrl: shareUrlFor(target.username!, await ensureSlug(rec)),
         })
@@ -486,8 +521,12 @@ export function apiRouter(): Router {
       for (const rec of [...follows, ...forYou, ...recent]) {
         if (!slugs.has(rec.id)) slugs.set(rec.id, await ensureSlug(rec))
       }
-      const entry = (rec: AudioRecord & { ownerUsername: string }) => ({
+      // ownerCoverStyle is optional only because RecCandidate (recs.ts) doesn't
+      // declare it — at runtime every shelf's rows come from the joined queries
+      // that select it.
+      const entry = (rec: AudioRecord & { ownerUsername: string; ownerCoverStyle?: CoverStyle }) => ({
         ...listItem(rec),
+        coverStyle: rec.ownerCoverStyle ?? 'classic',
         owner: rec.ownerUsername,
         shareUrl: shareUrlFor(rec.ownerUsername, slugs.get(rec.id)!),
       })
@@ -511,6 +550,7 @@ export function apiRouter(): Router {
       for (const rec of recs) {
         items.push({
           ...listItem(rec),
+          coverStyle: rec.ownerCoverStyle,
           owner: rec.ownerUsername,
           shareUrl: shareUrlFor(rec.ownerUsername, await ensureSlug(rec)),
         })
@@ -598,10 +638,12 @@ export function apiRouter(): Router {
         if (!names.has(uid)) names.set(uid, await usernameFor(uid))
         return names.get(uid)!
       }
+      const styles = await userRepo.coverStyles([...new Set(col.items.map((r) => r.userId))])
       const items = []
       for (const rec of col.items) {
         items.push({
           ...listItem(rec),
+          coverStyle: styles.get(rec.userId) ?? 'classic',
           owner: rec.userId === userId ? null : await nameOf(rec.userId),
         })
       }

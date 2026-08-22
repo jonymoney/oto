@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
+import type { CoverStyle } from '../../../src/types'
 import { fnv1a, mulberry32 } from '../waveform'
+import { drawInk, drawHalftone } from '../covers'
 
 // Shared "mesh" cover spec — the iOS app draws the identical pattern so the
 // same audio id + mood always yields the same art on both platforms. Do not
@@ -22,13 +24,7 @@ function palette(id: string, mood: string | null): [string, string, string] {
 // pattern is identical to iOS regardless of pixel density.
 const SCALE = 2
 
-function drawMesh(canvas: HTMLCanvasElement, id: string, mood: string | null, W: number) {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  canvas.width = W * SCALE
-  canvas.height = W * SCALE
-  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0)
-
+function drawMesh(ctx: CanvasRenderingContext2D, id: string, mood: string | null, W: number) {
   const pal = palette(id, mood)
   const rnd = mulberry32(fnv1a(id))
 
@@ -49,6 +45,34 @@ function drawMesh(canvas: HTMLCanvasElement, id: string, mood: string | null, W:
   }
 }
 
+// Style dispatch — new styles register here (open/closed), never as if-chains.
+// The creator's style always wins; unknown/absent styles fall back to classic.
+const RENDERERS: Record<
+  CoverStyle,
+  (ctx: CanvasRenderingContext2D, id: string, mood: string | null, emoji: string | null, W: number) => void
+> = {
+  classic: (ctx, id, mood, _emoji, W) => drawMesh(ctx, id, mood, W),
+  ink: (ctx, id, _mood, _emoji, W) => drawInk(ctx, id, W),
+  halftone: (ctx, id, _mood, emoji, W) => drawHalftone(ctx, id, emoji, W),
+}
+
+function drawCover(
+  canvas: HTMLCanvasElement,
+  style: string | null | undefined,
+  id: string,
+  mood: string | null,
+  emoji: string | null,
+  W: number,
+) {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  canvas.width = W * SCALE
+  canvas.height = W * SCALE
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0)
+  const render = RENDERERS[(style ?? 'classic') as CoverStyle] ?? RENDERERS.classic
+  render(ctx, id, mood, emoji, W)
+}
+
 interface CoverProps {
   /** Audio id — seeds the deterministic pattern. */
   id: string
@@ -58,15 +82,17 @@ interface CoverProps {
   size: number
   /** Optional emoji badge overlaid on the art. */
   emoji?: string | null
+  /** The CREATOR's cover style (absent/unknown → classic). */
+  coverStyle?: string | null
   className?: string
 }
 
-export function Cover({ id, mood, size, emoji, className }: CoverProps) {
+export function Cover({ id, mood, size, emoji, coverStyle, className }: CoverProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
-    if (canvasRef.current) drawMesh(canvasRef.current, id, mood, size)
-  }, [id, mood, size])
+    if (canvasRef.current) drawCover(canvasRef.current, coverStyle, id, mood, emoji ?? null, size)
+  }, [id, mood, size, emoji, coverStyle])
 
   return (
     <div

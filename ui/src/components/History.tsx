@@ -182,7 +182,7 @@ function HistoryRow({
 }: HistoryRowProps) {
   return (
     <li className="oto-row" data-active={active}>
-      <Cover id={item.id} mood={item.mood} emoji={item.emoji} size={34} className="oto-row-cover" />
+      <Cover id={item.id} mood={item.mood} emoji={item.emoji} coverStyle={item.coverStyle} size={34} className="oto-row-cover" />
       <button
         type="button"
         className="oto-row-main"

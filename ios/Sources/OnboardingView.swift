@@ -7,12 +7,14 @@ enum Onboarding {
     static func markDone() { UserDefaults.standard.set(true, forKey: "onboardingDone") }
 }
 
-/// Three-page first-run flow: pick a voice, how it works, connect your AI.
+/// Four-page first-run flow: pick a voice, pick a cover style, how it works,
+/// connect your AI.
 struct OnboardingView: View {
     let done: () -> Void
     init(done: @escaping () -> Void) { self.done = done }
 
     @State private var page = 0
+    @State private var coverStyle = "classic"
     @State private var prefs: API.Prefs?
     @State private var prefsFailed = false
     @State private var centeredVoice: API.Voice?
@@ -27,8 +29,9 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             TabView(selection: $page) {
                 voicePage.tag(0)
-                explainerPage.tag(1)
-                connectPage.tag(2)
+                stylePage.tag(1)
+                explainerPage.tag(2)
+                connectPage.tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
 
@@ -38,7 +41,7 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
         .overlay(alignment: .topTrailing) {
-            if page < 2 {
+            if page < 3 {
                 Button("Skip") { finish() }
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink2)
@@ -204,7 +207,46 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Page 2: how audios are made
+    // MARK: - Page 2: pick a cover style
+
+    private var stylePage: some View {
+        VStack(spacing: 0) {
+            Text("Pick a cover style")
+                .font(.largeTitle.bold())
+                .foregroundStyle(Theme.ink)
+                .padding(.top, 72)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 20) {
+                CoverStylePicker(selection: $coverStyle)
+                Text("Every audio you make gets generated cover art in this style. Change it anytime in Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.ink2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                Haptics.success()
+                // ponytail: best-effort persist; Settings is the recovery path if it fails
+                Task { _ = try? await API.updateCoverStyle(coverStyle) }
+                withAnimation(.spring(duration: 0.35)) { page = 2 }
+            } label: {
+                Text("Continue")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Page 3: how audios are made
 
     private var explainerPage: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -227,7 +269,7 @@ struct OnboardingView: View {
 
             Button {
                 Haptics.tap()
-                withAnimation(.spring(duration: 0.35)) { page = 2 }
+                withAnimation(.spring(duration: 0.35)) { page = 3 }
             } label: {
                 Text("Next")
                     .font(.headline)
@@ -253,7 +295,7 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Page 3: connect your AI
+    // MARK: - Page 4: connect your AI
 
     private var connectPage: some View {
         VStack(spacing: 0) {
@@ -371,7 +413,7 @@ struct OnboardingView: View {
 
     private var pageDots: some View {
         HStack(spacing: 8) {
-            ForEach(0..<3, id: \.self) { i in
+            ForEach(0..<4, id: \.self) { i in
                 Capsule()
                     .fill(i == page ? Theme.accent : Theme.ink3.opacity(0.4))
                     .frame(width: i == page ? 20 : 7, height: 7)

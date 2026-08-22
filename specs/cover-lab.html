@@ -1,0 +1,1804 @@
+<title>oto Cover Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Fraunces:ital,wght@1,600&family=Spline+Sans+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#efece5; --surface:#f8f6f1; --text:#1c1b18; --muted:#6b675e;
+    --line:#d9d5ca; --accent:#d85a30; --pin:#d85a30;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#171610; --surface:#201f18; --text:#ece9df; --muted:#99948a;
+      --line:#35332a; --accent:#e2764e; --pin:#e2764e;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#171610; --surface:#201f18; --text:#ece9df; --muted:#99948a;
+    --line:#35332a; --accent:#e2764e; --pin:#e2764e;
+  }
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"Jost",system-ui,sans-serif; font-size:17px; line-height:1.55;
+    margin:0; padding:0 24px 80px;
+  }
+  main{max-width:1080px; margin:0 auto;}
+  header{padding:56px 0 8px;}
+  h1{
+    font-size:clamp(2.2rem,5vw,3.4rem); font-weight:700; letter-spacing:-.02em;
+    margin:0 0 10px; text-wrap:balance;
+  }
+  h1 .dot{color:var(--accent);}
+  .lede{max-width:62ch; color:var(--muted); margin:0 0 28px;}
+  .lede strong{color:var(--text); font-weight:600;}
+
+  .controls{
+    display:flex; flex-wrap:wrap; gap:12px 16px; align-items:center;
+    padding:14px 16px; border:1px solid var(--line); border-radius:12px;
+    background:var(--surface); margin-bottom:8px;
+    position:sticky; top:12px; z-index:5;
+  }
+  .controls label{
+    font-size:.72rem; text-transform:uppercase; letter-spacing:.12em;
+    color:var(--muted); display:flex; align-items:center; gap:8px;
+  }
+  select,input[type=text]{
+    font-family:"Spline Sans Mono",monospace; font-size:.9rem;
+    color:var(--text); background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:7px 10px;
+  }
+  input[type=text]{width:15ch;}
+  select:focus,input:focus,button:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  button{
+    font-family:inherit; font-size:.9rem; font-weight:600; cursor:pointer;
+    color:var(--bg); background:var(--text); border:none; border-radius:8px;
+    padding:8px 16px;
+  }
+  button:hover{background:var(--accent);}
+  #play{margin-left:auto; background:var(--accent); color:#fff;}
+  #play:hover{background:var(--text); color:var(--bg);}
+
+  section.family{margin-top:44px;}
+  .fam-head{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:6px;}
+  .fam-head h2{font-size:1.35rem; font-weight:600; letter-spacing:-.01em; margin:0;}
+  .fam-head .tag{
+    font-family:"Spline Sans Mono",monospace; font-size:.7rem; letter-spacing:.08em;
+    color:var(--accent); text-transform:uppercase;
+  }
+  .fam-head .new{
+    font-family:"Spline Sans Mono",monospace; font-size:.62rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--bg); background:var(--accent);
+    border-radius:99px; padding:2px 9px;
+  }
+  .fam-note{color:var(--muted); font-size:.92rem; margin:0 0 14px; max-width:78ch;}
+  .row{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:14px;
+  }
+  .row-dir{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));}
+  .tile{display:flex; flex-direction:column; gap:6px; min-width:0;}
+  .tile canvas{
+    width:100%; aspect-ratio:1; display:block; border-radius:10px;
+    border:1px solid var(--line);
+  }
+  .tile.pinned canvas{border:2px solid var(--pin);}
+  .tile .id{
+    font-family:"Spline Sans Mono",monospace; font-size:.68rem; color:var(--muted);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .tile.pinned .id{color:var(--pin); font-weight:500;}
+
+  details.archive{margin-top:64px; border:1px dashed var(--line); border-radius:12px; padding:0 20px;}
+  details.archive summary{
+    cursor:pointer; padding:16px 0; font-weight:600; font-size:1.05rem;
+    list-style-position:inside;
+  }
+  details.archive summary .why{color:var(--muted); font-weight:400; font-size:.9rem;}
+  details.archive section.family:first-of-type{margin-top:8px;}
+  details.archive > p{color:var(--muted); font-size:.92rem; margin:0 0 8px; max-width:78ch;}
+  details.archive[open]{padding-bottom:32px;}
+
+  .reco{
+    margin-top:72px; border-top:2px solid var(--text); padding-top:28px;
+  }
+  .reco h2{font-size:1.6rem; font-weight:700; letter-spacing:-.015em; margin:0 0 6px;}
+  .reco .cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:28px; margin-top:18px;}
+  .reco h3{font-size:1.05rem; font-weight:600; margin:0 0 8px;}
+  .reco h3 .tag{font-family:"Spline Sans Mono",monospace; font-size:.7rem; color:var(--accent); text-transform:uppercase; letter-spacing:.08em; margin-right:8px;}
+  .reco p{color:var(--muted); font-size:.95rem; margin:0 0 10px;}
+  .reco p strong{color:var(--text); font-weight:600;}
+  .reco ul{color:var(--muted); font-size:.95rem; margin:8px 0 0; padding-left:1.2em;}
+  .reco li{margin-bottom:6px;}
+  .reco code{
+    font-family:"Spline Sans Mono",monospace; font-size:.82em;
+    background:var(--surface); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+  }
+  .reco .src{font-size:.8rem;}
+  .reco .src a{color:var(--accent); text-decoration:none;}
+  .reco .src a:hover{text-decoration:underline;}
+  .chip{
+    font-family:"Spline Sans Mono",monospace; font-size:.62rem; letter-spacing:.08em;
+    text-transform:uppercase; border-radius:99px; padding:2px 9px; margin-right:8px;
+    vertical-align:2px;
+  }
+  .chip.yes{background:#1d9e75; color:#fff;}
+  .chip.mid{background:var(--line); color:var(--text);}
+  .chip.no{background:var(--muted); color:var(--bg);}
+  details.archive > p{padding-bottom:4px;}
+
+  /* -- generator -- */
+  .gen{margin:26px 0 10px;}
+  .gen .fam-head h2{font-size:1.7rem;font-weight:700;}
+  .gen-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:12px 14px;
+    border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:14px 0 16px;}
+  .gen-bar label{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);
+    display:flex;align-items:center;gap:8px;}
+  .gen-bar input[type=text]{width:9ch;text-transform:uppercase;}
+  #gRoll{margin-left:auto;background:var(--accent);color:#fff;}
+  #gRoll:hover{background:var(--text);color:var(--bg);}
+  kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px;
+    font-family:"Spline Sans Mono",monospace;font-size:.72em;background:var(--bg);}
+  .gen-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;}
+  .gtile,.ktile{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0;}
+  .gtile canvas,.ktile canvas{width:100%;aspect-ratio:1;display:block;border-radius:12px;
+    border:1px solid var(--line);cursor:pointer;}
+  .gtile.pin canvas,.ktile canvas{border:2px solid var(--pin);}
+  .cap{font-family:"Spline Sans Mono",monospace;font-size:.64rem;color:var(--muted);
+    display:flex;gap:8px;align-items:baseline;min-width:0;}
+  .cap .sd{color:var(--text);font-weight:500;user-select:all;}
+  .cap .mt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:zoom-in;}
+  .gbtn{position:absolute;top:8px;width:28px;height:28px;border-radius:9px;border:none;padding:0;
+    background:rgba(18,16,12,.5);color:#fff;font-size:.85rem;line-height:1;cursor:pointer;
+    opacity:0;transition:opacity .12s;}
+  .gtile:hover .gbtn,.ktile:hover .gbtn,.gtile.pin .gbtn.pin{opacity:1;}
+  .gbtn.pin{right:8px;} .gbtn.zoom{right:42px;}
+  .keeps{border:1px dashed var(--pin);border-radius:12px;padding:12px 14px;margin-bottom:16px;}
+  .keeps-h{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:var(--pin);}
+  .keeps-row{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;}
+  .ktile{width:132px;}
+  dialog#gZoom{border:1px solid var(--line);border-radius:16px;background:var(--surface);
+    color:var(--text);padding:20px;max-width:min(1000px,94vw);}
+  dialog#gZoom::backdrop{background:rgba(12,10,8,.66);}
+  .zhead{display:flex;gap:12px;align-items:baseline;margin-bottom:14px;
+    font-family:"Spline Sans Mono",monospace;font-size:.72rem;color:var(--muted);}
+  .zhead .sd{font-size:1rem;color:var(--text);user-select:all;}
+  .zclose{margin-left:auto;}
+  .zcols{display:flex;gap:26px;flex-wrap:wrap;}
+  .zcols canvas{border-radius:12px;display:block;border:1px solid var(--line);}
+  .zctx{display:flex;flex-direction:column;gap:18px;}
+  .ctxlab{font-family:"Spline Sans Mono",monospace;font-size:.62rem;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+  .ctxbody{display:flex;gap:12px;align-items:center;}
+  .ctxbody.lib{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;width:330px;}
+  .ctxbody.player{flex-direction:column;align-items:flex-start;width:260px;}
+  .libtx{min-width:0;}
+  .libtx b{display:block;font-size:.9rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .libtx span,.playtx span{font-size:.75rem;color:var(--muted);}
+  .playtx{width:100%;}
+  .playtx b{display:block;font-size:1.05rem;font-weight:600;}
+  .playtx .bar{height:4px;border-radius:2px;background:var(--line);margin-top:10px;}
+  .playtx .bar i{display:block;width:38%;height:100%;border-radius:2px;background:var(--accent);}
+</style>
+
+<main>
+<header>
+  <h1>oto Cover Lab<span class="dot">.</span></h1>
+  <p class="lede">v5 &mdash; the <strong>reference-driven directions, revised on your notes</strong>: curated brand palettes for the fluid marble, collision-proof variation for the halftone, one pattern per ink cover, and Editorial Type set over each generated ground. All live, animated, and on the same FNV-1a&nbsp;&rarr;&nbsp;mulberry32 seed contract. The v3 research + typography mockups and the v1&ndash;v2 pattern families follow below, unchanged.</p>
+</header>
+
+<section class="gen" id="gen">
+  <div class="fam-head"><span class="tag">generator</span><h2>Editorial Type over a ground</h2><span class="new">live</span></div>
+  <p class="fam-note">The chosen direction, rollable. <strong>Generate</strong> (or <kbd>space</kbd> / <kbd>G</kbd>) rolls a fresh set; click any cover to re-roll just that one; shift-click or hit &#9734; to pin it into <strong>Keepers</strong>, which survive Generate; &#10530; opens it large beside real-size mock-ups &mdash; a 56&nbsp;px library row, a 110&nbsp;px grid cell and the 260&nbsp;px player artwork, which is the honest test of whether type-led covers survive at thumbnail size. Tiles are drawn static at <code>t&nbsp;=&nbsp;0</code> (how covers are seen nearly everywhere in the app, and twelve animated per-pixel grounds would melt the page) &mdash; hover one to see it move. Every tile carries its seed: tell me the four characters and the exact cover comes back.</p>
+  <div class="gen-bar">
+    <label>ground
+      <select id="gGround"><option value="">any</option><option>fluid</option><option>halftone</option><option>ink</option></select>
+    </label>
+    <label>mood
+      <select id="gMood"><option value="">from title</option>
+        <option>calm</option><option>energetic</option><option>serious</option><option>playful</option><option>warm</option>
+      </select>
+    </label>
+    <label>layout
+      <select id="gLayout"><option value="">any</option>
+        <option value="0">strap top, title high</option><option value="1">title low</option><option value="2">strap bottom</option>
+      </select>
+    </label>
+    <label>seed
+      <input type="text" id="gSeed" placeholder="7A3F" maxlength="8" spellcheck="false" autocomplete="off">
+    </label>
+    <button id="gGo">Open seed</button>
+    <button id="gRoll">Generate</button>
+  </div>
+  <div id="gKeep" class="keeps" hidden><span class="keeps-h">Keepers</span><div class="keeps-row"></div></div>
+  <div id="gGrid" class="gen-grid"></div>
+</section>
+<dialog id="gZoom"></dialog>
+
+
+<div class="controls">
+  <label>mood
+    <select id="mood">
+      <option value="">auto (hash)</option>
+      <option>calm</option><option>energetic</option><option>serious</option>
+      <option>playful</option><option>warm</option>
+    </select>
+  </label>
+  <label>pin an id
+    <input type="text" id="pin" placeholder="e.g. aud_9f31c2" spellcheck="false" autocomplete="off">
+  </label>
+  <button id="reroll">Reroll seeds</button>
+  <button id="play">Pause motion</button>
+</div>
+
+<section class="reco" style="margin-top:40px">
+  <h2>v4 &mdash; Reference-driven</h2>
+  <p style="color:var(--muted);max-width:78ch">Three generative directions worked out from the reference boards: <strong>Fluid Marble</strong> (smoky domain-warped ink in strong color), <strong>Halftone</strong> (print dot-screens forming a shape &mdash; the audio&rsquo;s emoji, or a seeded blob), and <strong>Ink Patterns</strong> (Posterlad-style two-color geometry). Same contract as everything below: FNV-1a&nbsp;&rarr;&nbsp;mulberry32 on the audio id, animation a pure function of (seed,&nbsp;t), t&nbsp;=&nbsp;0 is the static cover. The mood / pin / reroll / motion controls apply to these rows too.</p>
+  <p style="color:var(--text);max-width:78ch;border-left:3px solid var(--accent);padding-left:14px"><strong>v5 &mdash; revised on your notes.</strong> The tiles below are the corrected versions, replaced in place. <strong>Fluid Marble:</strong> palettes are no longer generated by hue math &mdash; the seed now <em>selects</em> from twelve curated five-stop palettes built on oto&rsquo;s locked brand tokens and the reference board, interpolated in OKLab so mid-tones can&rsquo;t go muddy; each tile is labelled with its palette name. <strong>Halftone:</strong> five orthogonal seeded channels (ink set, dot pitch, silhouette scale/rotation/crop, screen angle, misregistration) keep two audios apart even when they share an emoji &mdash; there is a dedicated same-emoji row to prove it. <strong>Ink Patterns:</strong> one pattern per cover, poster-composed with a fixed margin and a single focal element, split into four sub-families instead of a grid of mixed cells. <strong>New:</strong> Editorial Type &mdash; the v3 direction you liked &mdash; composed over each of the three grounds, at the bottom of this section.</p>
+  <div id="v4"></div>
+</section>
+
+<section class="reco research">
+  <h2>How the industry does it</h2>
+  <p style="color:var(--muted);max-width:72ch">What products that face the same problem &mdash; user-generated audio/content with no inherent imagery &mdash; actually ship.</p>
+  <div class="cols">
+    <div>
+      <h3><span class="tag">apple music</span>Typography over gradient</h3>
+      <p>Since iOS 17.1, Apple Music auto-generates playlist art from <strong>eight fixed styles of geometric shapes and gradients with the playlist title set in type, top-left</strong>; colors are extracted from the first track&rsquo;s album art. The lesson cuts both ways: type-on-gradient always looks intentional, but critics call Apple&rsquo;s take generic &mdash; &ldquo;a generic gradient&hellip; in Apple&rsquo;s generic-ass font&rdquo; &mdash; so the ground and the typeface have to carry real character.</p>
+      <p class="src">Sources: <a href="https://www.macrumors.com/2023/09/28/custom-apple-music-playlist-art-options/">MacRumors</a> &middot; <a href="https://coreyvilhauer.com/2025/09/30/apple-musics-bad-playlist-art/">coreyvilhauer.com</a></p>
+    </div>
+    <div>
+      <h3><span class="tag">spotify</span>Type as the brand</h3>
+      <p>Spotify&rsquo;s programmatic covers are typography-led: <strong>daylist</strong> is big type over &ldquo;illustrative gradient backgrounds resembling the sky&rdquo; that shift six times a day, and the Create Cover Art tool leads with <strong>Spotify&rsquo;s custom typeface, text effects, gradients, and stickers</strong>. Editorial playlists (Discover Weekly etc.) are fixed branded templates. Nowhere does Spotify ship abstract seeded geometry as a cover.</p>
+      <p class="src">Sources: <a href="https://newsroom.spotify.com/2024-10-22/create-cover-art-playlists-custom-beta/">Spotify Newsroom</a> &middot; <a href="https://philipvonborries.com/work/spotify-daylist">daylist case study</a></p>
+    </div>
+    <div>
+      <h3><span class="tag">avatars</span>Hash-to-image lineage</h3>
+      <p>Where content truly has no text worth showing, the industry converged on <strong>initial-on-color</strong> (Telegram, Signal, Jira, Google) and <strong>gradient + initials</strong> (Vercel&rsquo;s avatar microservice, boring-avatars). Identicons (GitHub&rsquo;s pixel sprites, WordPress patterns) are the pure-hash ancestors &mdash; and are treated today as developer-tool aesthetics, not consumer art. That is the cautionary tale for our v1&ndash;v2 families: seeded abstract geometry reads as <em>avatar</em>, not <em>artwork</em>.</p>
+      <p class="src">Sources: <a href="https://barro.github.io/2018/02/avatars-identicons-and-hash-visualization/">Hash visualization survey</a> &middot; <a href="https://github.com/vercel/avatar">vercel/avatar</a></p>
+    </div>
+    <div>
+      <h3><span class="tag">ai audio apps</span>Prompted image gen</h3>
+      <p><strong>Suno</strong> generates covers with an image model from a text prompt (rolled out July&nbsp;2026) and embeds the art in the mp3; community pipelines reach for gpt-image when the cover must render text accurately. It fits music-as-fantasy, but it is per-item cost and latency, non-deterministic, needs moderation, and breaks any &ldquo;render the cover anywhere from the id&rdquo; contract. Podcast apps, by contrast, don&rsquo;t generate art at all &mdash; Pocket Casts falls back from feed art to embedded file art, nothing synthesized.</p>
+      <p class="src">Sources: <a href="https://roo.beehiiv.com/p/suno-cover-art-update-2026">Suno cover-art update</a> &middot; <a href="https://support.pocketcasts.com/knowledge-base/podcast-artwork-2/">Pocket Casts</a></p>
+    </div>
+  </div>
+
+  <h2 style="margin-top:44px">The approaches that exist</h2>
+  <div class="cols">
+    <div>
+      <h3><span class="chip yes">strong fit</span>Typography-led</h3>
+      <p>Title as the hero on a considered ground (Apple Music, daylist). <strong>Pro:</strong> the title is oto&rsquo;s one piece of real content; always looks intentional; cheap; deterministic; i18n-friendly. <strong>Con:</strong> needs good text wrapping and a characterful typeface, or it lands in Apple&rsquo;s &ldquo;generic&rdquo; trap.</p>
+    </div>
+    <div>
+      <h3><span class="chip yes">strong fit</span>Hybrid: type over generative field</h3>
+      <p>Typography carries meaning, a seeded soft field carries mood and uniqueness &mdash; what Apple&rsquo;s eight styles actually are, with our field math underneath. <strong>Pro:</strong> reuses everything already built (palettes, seed contract, glow/glass fields); animates beautifully. <strong>Con:</strong> two systems to keep in balance.</p>
+    </div>
+    <div>
+      <h3><span class="chip mid">fallback</span>Monogram / emoji badge</h3>
+      <p>Initial-or-emoji on color, the avatar lineage. <strong>Pro:</strong> the right answer at 44px where type is unreadable; oto records already carry a user emoji. <strong>Con:</strong> not artwork &mdash; a size-specific degradation, not the identity.</p>
+    </div>
+    <div>
+      <h3><span class="chip mid">later</span>Content-derived (waveform)</h3>
+      <p>Waveform/spectrogram-driven visuals &mdash; audio-native (SoundCloud lineage). <strong>Pro:</strong> honest to the medium. <strong>Con:</strong> TTS speech waveforms all look alike; needs an analysis pass at generation time; weak differentiation per item.</p>
+    </div>
+    <div>
+      <h3><span class="chip no">not now</span>Pattern families (v1&ndash;v2)</h3>
+      <p>Seeded abstract geometry/texture. <strong>Pro:</strong> free, infinite, deterministic. <strong>Con:</strong> the research verdict is blunt &mdash; this is the identicon/avatar tradition, and no consumer audio product ships it as cover art. Keep the fields as grounds for type, not as the art itself.</p>
+    </div>
+    <div>
+      <h3><span class="chip no">not now</span>AI image generation</h3>
+      <p>Per-audio prompted images (Suno). <strong>Pro:</strong> unlimited visual richness. <strong>Con:</strong> cost + latency per generation, storage, moderation, style drift, network-bound &mdash; and it violates oto&rsquo;s deterministic render-anywhere cover contract. Revisit only as an opt-in premium extra.</p>
+    </div>
+  </div>
+</section>
+
+<section class="reco directions">
+  <h2>New directions, mocked up</h2>
+  <p style="color:var(--muted);max-width:72ch">Three samples per direction, using real oto-style titles, the user&rsquo;s emoji, and the shipping mood palettes. All canvas, all deterministic, fonts are the page&rsquo;s own (Jost + Fraunces).</p>
+  <div id="directions"></div>
+</section>
+
+<details class="archive" id="oldwork">
+  <summary>Pattern-family exploration (v1&ndash;v2) <span class="why">&mdash; 15 procedural families with motion; kept for comparison</span></summary>
+  <p>The controls above (mood, pin, reroll, motion) apply to these rows.</p>
+  <div id="families"></div>
+
+<details class="archive">
+  <summary>Archive &mdash; the poster era <span class="why">(read as 1970s print; kept for reference, also animated)</span></summary>
+  <p>Sunset Arcs, Checker Fan, and Bauhaus Blocks from v1. Strong compositions, but they read as retro poster design rather than a contemporary audio product &mdash; concentric sunsets and radial checkers carry too much 1972.</p>
+  <div id="archived"></div>
+</details>
+</details>
+
+<section class="reco">
+  <h2>What I&rsquo;d ship (evidence-based)</h2>
+  <p style="color:var(--muted);max-width:72ch">The research points one way: products with text-bearing, imagery-less content put <strong>the title on a considered ground</strong>; pure seeded geometry is the avatar tradition, not cover art. oto covers carry a title, an emoji, a mood, a language &mdash; use them.</p>
+  <div class="cols">
+    <div>
+      <h3><span class="tag">ship / default</span>Type over Field</h3>
+      <p>The hybrid keeps everything already built and fixes what the abstract families lacked: <strong>meaning</strong>. The seeded glow/glass field (deterministic, mood-colored, animatable) becomes the stage; the emoji &mdash; content the user explicitly chose &mdash; is the hero; the title and metadata anchor the bottom. It follows the Apple Music formula while dodging its &ldquo;generic gradient + generic font&rdquo; critique, because the ground is seeded per-audio and the type is a brand face. At thumbnail sizes, drop the text and keep the emoji on the field &mdash; the industry-standard degradation.</p>
+    </div>
+    <div>
+      <h3><span class="tag">alt / flavor</span>Editorial Type</h3>
+      <p><strong>Title Card</strong> is the safe, shippable floor (pure type + palette, no field to maintain), and <strong>Editorial Type</strong> is the same idea with a stronger point of view &mdash; daylist-style mixed typography that makes even a dry briefing title feel authored. Either can ship as a user-selectable style later; don&rsquo;t build three systems now. The v1&ndash;v2 fields survive as grounds and as the full-screen player ambience.</p>
+    </div>
+    <div>
+      <h3><span class="tag">path</span>Implementation</h3>
+      <ul>
+        <li><strong>Cover spec becomes</strong> <code>draw(id, mood, title, emoji, t)</code> &mdash; still deterministic, still no network. Field math unchanged from v2 (<code>t</code> feeds phases; static surfaces pass <code>t=0</code>).</li>
+        <li><strong>iOS</strong> (<code>ios/Sources/Cover.swift</code>): field in the existing <code>Canvas</code> under <code>TimelineView(.animation)</code>; title/emoji as SwiftUI <code>Text</code> overlay &mdash; free wrapping, Dynamic Type, no canvas text layout.</li>
+        <li><strong>Web player</strong> (<code>ui/src/components/Cover.tsx</code>): field on canvas, type as absolutely-positioned HTML over it &mdash; browsers wrap text better than <code>fillText</code>.</li>
+        <li><strong>Share/og</strong> (<code>src/share.ts</code>): SVG field (feGaussianBlur + gradients, resvg-proven) + <code>&lt;text&gt;</code> title; ship the Jost woff2 to resvg for rasterizing, emoji via a fallback glyph or the twemoji SVG for the one emoji used.</li>
+        <li><strong>Thumbnails</strong>: size-aware variant &mdash; below ~80px render field + emoji only.</li>
+      </ul>
+      <p style="margin-top:10px"><strong>Effort:</strong> ~1&ndash;1.5 days: field reuse is free; the new work is text layout on share pages and the size-aware variant.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+/* \u2500\u2500 seed contract: identical to Cover.swift / share.ts \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+function fnv1a(s){
+  let h = 0x811c9dc5 >>> 0;
+  for (const b of new TextEncoder().encode(s)){ h = Math.imul(h ^ b, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+function mulberry32(a){
+  return function(){
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t = (t + Math.imul(t ^ (t >>> 7), t | 61)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const PALETTES = {
+  calm:      ['#1d9e75','#0f6e56','#378add'],
+  energetic: ['#f5a623','#d85a30','#ef9f27'],
+  serious:   ['#534ab7','#185fa5','#3c3489'],
+  playful:   ['#d4537e','#7f77dd','#ed93b1'],
+  warm:      ['#d85a30','#f5a623','#993c1d'],
+};
+const FALLBACK = ['warm','calm','energetic','serious','playful'];
+function palette(id, mood){
+  if (mood && PALETTES[mood]) return PALETTES[mood];
+  return PALETTES[FALLBACK[fnv1a(id) % 5]];
+}
+function mix(hex, t){
+  const n = parseInt(hex.slice(1), 16);
+  const tgt = t < 0 ? 0 : 255, k = Math.abs(t);
+  const c = sh => { const v = (n >> sh) & 255; return Math.round(v + (tgt - v) * k); };
+  return `rgb(${c(16)},${c(8)},${c(0)})`;
+}
+const TAU = Math.PI * 2;
+function pick(R, arr){ return arr[Math.floor(R() * arr.length)]; }
+
+/* \u2500\u2500 families \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   Every draw is (ctx, size, rng, pal, t) and must be deterministic in
+   (seed, t): rng pulls happen identically every frame, t only feeds
+   sinusoid phases. t=0 is the static cover. \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+
+/* \u2014 v2.1: texture set (blur / gradient / glass) \u2014 */
+
+function glass(x, s, R, [a, b, bg], t){
+  /* seeded field params first \u2014 pull order frozen */
+  const os = [];
+  const fieldCols = [a, b, mix(a, -.35)];
+  for (let i = 0; i < 3; i++) os.push({
+    cx: s * (.2 + R() * .6), cy: s * (.2 + R() * .6), r: s * (.28 + R() * .18),
+    col: fieldCols[i], ph: R() * TAU, om: .12 + R() * .15
+  });
+  const pw = s * (.38 + R() * .18), ph2 = pw * (1 + R() * .4);
+  const px0 = s * .08 + R() * (s * .84 - pw), py0 = s * .08 + R() * (s * .84 - ph2);
+  const pph = R() * TAU, pom = .1 + R() * .12;
+  const field = extra => {
+    x.fillStyle = bg; x.fillRect(0, 0, s, s);
+    x.filter = `blur(${s * .09 + extra}px)`;
+    for (const o of os){
+      x.fillStyle = o.col;
+      x.beginPath();
+      x.arc(o.cx + Math.sin(t * o.om + o.ph) * s * .05,
+            o.cy + Math.cos(t * o.om * 1.3 + o.ph) * s * .05, o.r, 0, 7);
+      x.fill();
+    }
+    x.filter = 'none';
+  };
+  field(0);
+  /* frosted pane: re-draw the field blurred harder inside the clip + white veil */
+  const dx = Math.sin(t * pom + pph) * s * .03, dy = Math.cos(t * pom * .8 + pph) * s * .02;
+  x.save();
+  x.beginPath(); x.roundRect(px0 + dx, py0 + dy, pw, ph2, s * .07); x.clip();
+  field(s * .08);
+  x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(0, 0, s, s);
+  x.fillStyle = 'rgba(255,255,255,.10)';
+  x.beginPath();
+  x.moveTo(px0 + dx, py0 + dy + ph2 * .55); x.lineTo(px0 + dx + pw, py0 + dy + ph2 * .1);
+  x.lineTo(px0 + dx + pw, py0 + dy); x.lineTo(px0 + dx, py0 + dy);
+  x.closePath(); x.fill();
+  x.restore();
+  x.strokeStyle = 'rgba(255,255,255,.55)'; x.lineWidth = 1.4;
+  x.beginPath(); x.roundRect(px0 + dx, py0 + dy, pw, ph2, s * .07); x.stroke();
+}
+
+function aurora(x, s, R, [a, b, bg], t){
+  x.fillStyle = mix(bg, -.62); x.fillRect(0, 0, s, s);
+  const cols = [a, b, mix(a, .35), mix(b, .3)];
+  x.globalCompositeOperation = 'lighter';
+  x.filter = `blur(${s * .05}px)`;
+  x.lineCap = 'round';
+  const n = 3 + Math.floor(R() * 2);
+  for (let i = 0; i < n; i++){
+    const baseY = s * (.2 + R() * .6);
+    const a1 = s * (.06 + R() * .1), f1 = (.7 + R()) * TAU / s, p1 = R() * TAU;
+    const sp = (.1 + R() * .2) * (R() < .5 ? 1 : -1);
+    const g = x.createLinearGradient(0, 0, s, 0);
+    g.addColorStop(0, cols[Math.floor(R() * 4)]);
+    g.addColorStop(1, cols[Math.floor(R() * 4)]);
+    x.strokeStyle = g;
+    x.globalAlpha = .75;
+    x.lineWidth = s * (.1 + R() * .12);
+    x.beginPath();
+    for (let px = -s * .1; px <= s * 1.1; px += 8){
+      const py = baseY + a1 * Math.sin(f1 * px + p1 + t * sp);
+      px <= -s * .1 + 1 ? x.moveTo(px, py) : x.lineTo(px, py);
+    }
+    x.stroke();
+  }
+  x.globalAlpha = 1; x.filter = 'none'; x.globalCompositeOperation = 'source-over';
+}
+
+function glow(x, s, R, [a, b, bg], t){
+  x.fillStyle = mix(bg, -.55); x.fillRect(0, 0, s, s);
+  x.globalCompositeOperation = 'lighter';
+  const cols = [a, b, mix(a, .4), mix(bg, .5)];
+  const n = 3 + Math.floor(R() * 2);
+  for (let i = 0; i < n; i++){
+    const ph = R() * TAU, om = .15 + R() * .2, os2 = .3 + R() * .3;
+    const cx = s * (.2 + R() * .6) + Math.sin(t * om + ph) * s * .04;
+    const cy = s * (.2 + R() * .6) + Math.cos(t * om * 1.4 + ph) * s * .04;
+    const r = s * (.24 + R() * .26) * (1 + .07 * Math.sin(t * os2 + ph));
+    const g = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, cols[i % 4]); g.addColorStop(.45, cols[i % 4]);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g;
+    x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  }
+  x.globalCompositeOperation = 'source-over';
+  x.fillStyle = mix(bg, .8);
+  x.beginPath(); x.arc(s * (.15 + R() * .7), s * (.15 + R() * .7), s * .018, 0, 7); x.fill();
+}
+
+function conic(x, s, R, [a, b, bg], t){
+  const cx = s * (.3 + R() * .4), cy = s * (.3 + R() * .4);
+  const g = x.createConicGradient(R() * TAU + t * .06, cx, cy);
+  const stops = [a, b, mix(bg, -.4), mix(a, .3)];
+  const jit = [];
+  for (let i = 0; i < 4; i++) jit.push(.12 + R() * .2);
+  const total = jit.reduce((u, v) => u + v, 0);
+  let acc = 0;
+  stops.forEach((c, i) => { g.addColorStop(acc / total, c); acc += jit[i]; });
+  g.addColorStop(1, stops[0]);
+  x.fillStyle = g; x.fillRect(0, 0, s, s);
+  /* soft breathing disc + one sharp hairline ring for contrast */
+  const bx = s * (.25 + R() * .5), by = s * (.25 + R() * .5);
+  const br = s * (.12 + R() * .08), bp = R() * TAU;
+  x.filter = `blur(${s * .06}px)`;
+  x.fillStyle = 'rgba(255,255,255,.25)';
+  x.beginPath(); x.arc(bx, by, br * (1 + .1 * Math.sin(t * .5 + bp)), 0, 7); x.fill();
+  x.filter = 'none';
+  x.strokeStyle = 'rgba(255,255,255,.5)'; x.lineWidth = s * .006;
+  x.beginPath(); x.arc(cx, cy, s * (.3 + R() * .2), 0, 7); x.stroke();
+}
+
+function halo(x, s, R, [a, b, bg], t){
+  const deep = mix(bg, -.5);
+  const os = [
+    {cx: s * (.25 + R() * .5), cy: s * (.25 + R() * .5), r: s * (.3 + R() * .15), col: a, ph: R() * TAU, om: .15 + R() * .15},
+    {cx: s * (.25 + R() * .5), cy: s * (.25 + R() * .5), r: s * (.3 + R() * .15), col: b, ph: R() * TAU, om: .15 + R() * .15},
+  ];
+  const field = extra => {
+    x.fillStyle = deep; x.fillRect(0, 0, s, s);
+    x.filter = `blur(${s * .1 + extra}px)`;
+    for (const o of os){
+      x.fillStyle = o.col;
+      x.beginPath();
+      x.arc(o.cx + Math.sin(t * o.om + o.ph) * s * .04,
+            o.cy + Math.cos(t * o.om + o.ph) * s * .04,
+            o.r * (1 + .05 * Math.sin(t * .4 + o.ph)), 0, 7);
+      x.fill();
+    }
+    x.filter = 'none';
+  };
+  field(0);
+  /* frosted annular arc drifting around the center */
+  const cx = s / 2, cy = s / 2;
+  const r1 = s * (.36 + R() * .08), r0 = r1 - s * (.11 + R() * .04);
+  const a0 = R() * TAU + t * .08, sweep = TAU * (.55 + R() * .3);
+  x.save();
+  x.beginPath();
+  x.arc(cx, cy, r1, a0, a0 + sweep);
+  x.arc(cx, cy, r0, a0 + sweep, a0, true);
+  x.closePath(); x.clip();
+  field(s * .06);
+  x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(0, 0, s, s);
+  x.restore();
+  x.strokeStyle = 'rgba(255,255,255,.5)'; x.lineWidth = 1.2;
+  x.beginPath(); x.arc(cx, cy, r1, a0, a0 + sweep); x.stroke();
+  x.beginPath(); x.arc(cx, cy, r0, a0, a0 + sweep); x.stroke();
+}
+
+/* \u2014 v2: contemporary flat set \u2014 */
+
+function blobs(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cols = [a, b, mix(a, -.3)];
+  const nb = 2 + (R() < .4 ? 1 : 0);
+  for (let i = 0; i < nb; i++){
+    const cx = s * (.25 + R() * .5), cy = s * (.25 + R() * .5);
+    const r0 = s * (.17 + R() * .16);
+    const h = [];
+    for (let k = 2; k <= 4; k++)
+      h.push([k, .06 + R() * .1, R() * TAU, (.15 + R() * .25) * (R() < .5 ? 1 : -1)]);
+    x.fillStyle = cols[i % 3];
+    x.beginPath();
+    for (let th = 0; th <= TAU + .05; th += .08){
+      let r = r0;
+      for (const [k, ak, ph, om] of h) r += r0 * ak * Math.sin(k * th + ph + om * t);
+      const px = cx + r * Math.cos(th), py = cy + r * Math.sin(th);
+      th === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
+    }
+    x.closePath(); x.fill();
+  }
+  x.fillStyle = mix(bg, .74);
+  const dp = R() * TAU, dr = s * (.32 + R() * .1);
+  x.beginPath();
+  x.arc(s / 2 + dr * Math.cos(dp + t * .1), s / 2 + dr * Math.sin(dp + t * .1), s * .035, 0, 7);
+  x.fill();
+}
+
+function ribbons(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cols = [a, b, mix(bg, .74), mix(a, -.3)];
+  const n = 3 + Math.floor(R() * 2);
+  x.lineCap = 'round';
+  for (let i = 0; i < n; i++){
+    const baseY = s * (.15 + R() * .7);
+    const a1 = s * (.05 + R() * .09), f1 = (.8 + R() * 1.2) * TAU / s, p1 = R() * TAU;
+    const a2 = s * (.02 + R() * .04), f2 = (2 + R() * 2) * TAU / s, p2 = R() * TAU;
+    const sp = (.15 + R() * .3) * (R() < .5 ? 1 : -1);
+    x.lineWidth = s * (.055 + R() * .09);
+    x.strokeStyle = cols[i % 4];
+    x.beginPath();
+    for (let px = -s * .1; px <= s * 1.1; px += 6){
+      const py = baseY + a1 * Math.sin(f1 * px + p1 + t * sp)
+                       + a2 * Math.sin(f2 * px + p2 - t * sp * 1.7);
+      px <= -s * .1 + 1 ? x.moveTo(px, py) : x.lineTo(px, py);
+    }
+    x.stroke();
+  }
+}
+
+function squircles(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cols = [a, mix(bg, .74), b, bg];
+  const cx = s * (.35 + R() * .3), cy = s * (.35 + R() * .3);
+  const n = 4 + Math.floor(R() * 2);
+  const base = s * (.6 + R() * .18), rot0 = R() * Math.PI / 4;
+  const om = (.04 + R() * .05) * (R() < .5 ? 1 : -1);
+  const spread = .1 + R() * .16;
+  for (let i = 0; i < n; i++){
+    const size = base * (1 - i / n);
+    x.save();
+    x.translate(cx, cy);
+    x.rotate(rot0 + i * spread + t * om * (i + 1) / n);
+    x.fillStyle = cols[i % 4];
+    x.beginPath();
+    x.roundRect(-size / 2, -size / 2, size, size, size * .3);
+    x.fill();
+    x.restore();
+  }
+}
+
+function phyllo(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const paper = mix(bg, .74);
+  const cx = s * (.3 + R() * .4), cy = s * (.3 + R() * .4);
+  const n = 150 + Math.floor(R() * 80);
+  const c = s * (.03 + R() * .012);
+  const rot = R() * TAU + t * .03;
+  const every = 9 + Math.floor(R() * 6);
+  for (let i = 0; i < n; i++){
+    const r = c * Math.sqrt(i), th = i * 2.399963 + rot;
+    const px = cx + r * Math.cos(th), py = cy + r * Math.sin(th);
+    if (px < -s * .05 || px > s * 1.05 || py < -s * .05 || py > s * 1.05) continue;
+    const dr = s * (.007 + .026 * i / n) * (1 + .12 * Math.sin(t * .5 + i * .07));
+    x.fillStyle = i % every === 0 ? b : (i % every === Math.floor(every / 2) ? paper : a);
+    x.beginPath(); x.arc(px, py, dr, 0, 7); x.fill();
+  }
+}
+
+function warpStripes(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const paper = mix(bg, .74);
+  const n = 12 + Math.floor(R() * 8);
+  const w = (s / n) * (.42 + R() * .2);
+  const A = s * (.035 + R() * .055), k = (1 + Math.floor(R() * 2)) * TAU / s;
+  const p0 = R() * TAU, sp = (.2 + R() * .3) * (R() < .5 ? 1 : -1);
+  const hotA = 2 + Math.floor(R() * 3), hotB = 5 + Math.floor(R() * 4);
+  x.lineCap = 'butt';
+  x.lineWidth = w;
+  for (let i = 0; i < n; i++){
+    const x0 = (i + .5) * s / n;
+    x.strokeStyle = i % hotB === 0 ? b : (i % hotA === 0 ? a : paper);
+    x.beginPath();
+    for (let y = -s * .05; y <= s * 1.05; y += 8){
+      const xx = x0 + A * Math.sin(k * y + p0 + i * .35 + t * sp);
+      y <= -s * .05 + 1 ? x.moveTo(xx, y) : x.lineTo(xx, y);
+    }
+    x.stroke();
+  }
+}
+
+function capsules(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cols = [a, b, mix(bg, .74), mix(a, -.3)];
+  const rows = 6 + Math.floor(R() * 3);
+  const rh = s * (.55 / rows);
+  for (let i = 0; i < rows; i++){
+    const y = s * (i + .5) / rows;
+    const len = s * (.2 + R() * .58);
+    const x0 = R() * (s - len);
+    const ph = R() * TAU, om = .25 + R() * .3;
+    const drift = Math.sin(t * om + ph) * s * .035;
+    x.fillStyle = cols[Math.floor(R() * 4)];
+    x.beginPath();
+    x.roundRect(x0 + drift, y - rh / 2, len, rh, rh / 2);
+    x.fill();
+  }
+}
+
+/* \u2014 v1 keepers, modernized + time-parameterized \u2014 */
+
+function truchet(x, s, R, [a, b, bg], t){
+  const paper = mix(bg, .74);
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const n = 4, c = s / n, cols = [a, b, paper];
+  const corners = [[0,0,0],[c,0,Math.PI/2],[c,c,Math.PI],[0,c,Math.PI*1.5]];
+  for (let r = 0; r < n; r++) for (let col = 0; col < n; col++){
+    const ox = col * c, oy = r * c;
+    const color = pick(R, cols);
+    const [dx, dy, a0] = corners[Math.floor(R() * 4)];
+    const kind = R(), ph = R() * TAU;
+    const w = .07 * Math.sin(t * .35 + ph); /* gentle pie wobble */
+    x.fillStyle = color;
+    if (kind < .1){
+      x.beginPath();
+      x.arc(ox + c / 2, oy + c / 2, c * .34 * (1 + .06 * Math.sin(t * .5 + ph)), 0, 7);
+      x.fill();
+    } else if (kind < .3){
+      /* blank \u2014 more negative space than v1 */
+    } else {
+      x.beginPath(); x.moveTo(ox + dx, oy + dy);
+      x.arc(ox + dx, oy + dy, c, a0 + w, a0 + Math.PI / 2 + w);
+      x.closePath(); x.fill();
+    }
+  }
+}
+
+function waves(x, s, R, [a, b, bg], t){
+  x.fillStyle = mix(bg, .55); x.fillRect(0, 0, s, s);
+  const cols = [bg, a, mix(bg, .7), b, mix(a, -.3)];
+  const bands = 5 + Math.floor(R() * 3);
+  for (let i = 0; i < bands; i++){
+    const base = s * (i + .6) / bands + (R() - .5) * s * .05;
+    const amp = s * (.02 + R() * .05);
+    const freq = (1 + Math.floor(R() * 3)) * TAU / s;
+    const ph = R() * TAU;
+    const sp = (.2 + R() * .35) * (i % 2 ? 1 : -1); /* alternating drift */
+    x.fillStyle = cols[(i + Math.floor(R() * 2)) % cols.length];
+    x.beginPath(); x.moveTo(0, base + amp * Math.sin(ph + t * sp));
+    for (let px = 4; px <= s; px += 4)
+      x.lineTo(px, base + amp * Math.sin(freq * px + ph + t * sp));
+    x.lineTo(s, s); x.lineTo(0, s); x.closePath(); x.fill();
+  }
+}
+
+function orbits(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cols = [a, b, mix(bg, .74), mix(bg, -.5)];
+  const cx = s / 2 + (R() - .5) * s * .24, cy = s / 2 + (R() - .5) * s * .24;
+  const n = 4 + Math.floor(R() * 3); /* fewer, thinner rings than v1 */
+  x.lineCap = 'round';
+  x.lineWidth = s * (.025 + R() * .015);
+  for (let i = 1; i <= n; i++){
+    const r = s * .08 + i * (s * .44 / n);
+    const om = (.08 + R() * .12) * (i % 2 ? 1 : -1);
+    const a0 = R() * TAU + t * om;
+    const sweep = (.2 + R() * .55) * TAU;
+    x.strokeStyle = cols[i % cols.length];
+    x.beginPath(); x.arc(cx, cy, r, a0, a0 + sweep); x.stroke();
+  }
+  x.fillStyle = a;
+  x.beginPath(); x.arc(cx, cy, s * .05, 0, 7); x.fill();
+}
+
+function pipes(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cols = [a, b, mix(bg, .74), mix(a, -.3)];
+  const n = 5 + Math.floor(R() * 3);
+  const gap = s * .045, w = (s - gap * (n + 1)) / n;
+  for (let i = 0; i < n; i++){
+    const h0 = s * (.25 + R() * .6), top = R() < .35, ph = R() * TAU;
+    const h = h0 * (1 + .05 * Math.sin(t * (.6 + R() * .4) + ph)); /* breathing EQ */
+    const cx = gap + i * (w + gap) + w / 2;
+    x.fillStyle = cols[Math.floor(R() * cols.length)];
+    x.beginPath();
+    if (top){
+      x.rect(cx - w / 2, 0, w, h - w / 2);
+      x.arc(cx, h - w / 2, w / 2, 0, 7);
+    } else {
+      x.rect(cx - w / 2, s - h + w / 2, w, h - w / 2);
+      x.arc(cx, s - h + w / 2, w / 2, 0, 7);
+    }
+    x.fill();
+  }
+}
+
+/* \u2014 archive: v1 poster era \u2014 */
+
+function sunset(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const cx = s * (.3 + R() * .4), cy = s * (.32 + R() * .3);
+  const rings = 4 + Math.floor(R() * 3);
+  const maxR = s * (.5 + R() * .25) * (1 + .02 * Math.sin(t * .4));
+  const cols = [a, b, mix(bg, .7), mix(a, -.35)];
+  for (let i = 0; i < rings; i++){
+    x.fillStyle = cols[i % cols.length];
+    x.beginPath(); x.arc(cx, cy, maxR * (1 - i / rings), 0, 7); x.fill();
+  }
+  const hy = cy + maxR * (.2 + R() * .45);
+  x.fillStyle = mix(bg, -.45); x.fillRect(0, hy, s, s - hy);
+  x.fillStyle = mix(bg, .7);
+  x.beginPath(); x.arc(s * (.15 + R() * .7), (hy + s) / 2, s * .05, 0, 7); x.fill();
+}
+
+function fan(x, s, R, [a, b, bg], t){
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const paper = mix(bg, .74);
+  const [px, py] = pick(R, [[0,0],[s,0],[s,s],[0,s],[s/2,-s*.2],[s/2,s*1.2]]);
+  const ringW = s * (.11 + R() * .06);
+  const sectors = 6 + Math.floor(R() * 5);
+  const swap = 2 + Math.floor(R() * 3);
+  const step = TAU / sectors, off = R() * step + t * .04;
+  for (let i = 0; i * ringW < s * 1.7; i++){
+    const r0 = i * ringW, r1 = r0 + ringW;
+    const hue = (Math.floor(i / swap) % 2) ? b : a;
+    for (let j = 0; j < sectors; j++){
+      x.fillStyle = ((i + j) % 2) ? hue : paper;
+      const a0 = off + j * step, a1 = a0 + step;
+      x.beginPath();
+      x.arc(px, py, r1, a0, a1);
+      x.arc(px, py, Math.max(r0, .01), a1, a0, true);
+      x.closePath(); x.fill();
+    }
+  }
+}
+
+function blocks(x, s, R, [a, b, bg], t){
+  const paper = mix(bg, .74), ink = mix(bg, -.55);
+  x.fillStyle = bg; x.fillRect(0, 0, s, s);
+  const sp = s * (.35 + R() * .3), vert = R() < .5;
+  x.fillStyle = mix(bg, R() < .5 ? -.3 : .4);
+  if (vert) x.fillRect(sp, 0, s - sp, s); else x.fillRect(0, sp, s, s - sp);
+  const nb = 3, bw = s * .075, along = R() < .5;
+  const b0 = s * (.1 + R() * .3);
+  x.fillStyle = R() < .5 ? b : paper;
+  for (let i = 0; i < nb; i++){
+    const p = b0 + i * bw * 2;
+    if (along) x.fillRect(p, 0, bw, s); else x.fillRect(0, p, s, bw);
+  }
+  x.fillStyle = a;
+  x.beginPath();
+  x.arc(s * (.25 + R() * .5), s * (.25 + R() * .5),
+        s * (.26 + R() * .13) * (1 + .02 * Math.sin(t * .5)), 0, 7);
+  x.fill();
+  const q = Math.floor(R() * 4);
+  const [qx, qy, qa] = [[0,0,0],[s,0,Math.PI/2],[s,s,Math.PI],[0,s,Math.PI*1.5]][q];
+  x.fillStyle = R() < .5 ? paper : b;
+  x.beginPath(); x.moveTo(qx, qy); x.arc(qx, qy, s * .3, qa, qa + Math.PI / 2); x.closePath(); x.fill();
+  x.fillStyle = ink;
+  x.beginPath(); x.arc(s * (.15 + R() * .7), s * (.15 + R() * .7), s * .05, 0, 7); x.fill();
+}
+
+const FAMILIES = [
+  { key:'glass', name:'Glass Panes', draw:glass, fresh:true,
+    note:'A frosted pane drifting over an animated color field &mdash; three blurred orbs make the field, and the pane re-draws it with heavier blur plus a white veil, sheen, and hairline edge. The backdrop-blur look, done deterministically.' },
+  { key:'aurora', name:'Aurora Bands', draw:aurora, fresh:true,
+    note:'Wide blurred gradient ribbons composited additively on a deep ground, each sliding on its own slow sine &mdash; northern-lights color without noise textures.' },
+  { key:'glow', name:'Glow Orbs', draw:glow, fresh:true,
+    note:'Three or four radial-gradient orbs breathing and drifting in additive light &mdash; the production mesh cover&rsquo;s descendant, with fewer, bigger, more saturated sources and real negative space.' },
+  { key:'conic', name:'Conic Sweep', draw:conic, fresh:true,
+    note:'A full-frame multi-stop conic gradient rotating almost imperceptibly around an off-center pole, with one soft breathing disc and one sharp hairline ring for focus.' },
+  { key:'halo', name:'Frosted Halo', draw:halo, fresh:true,
+    note:'Glass meets geometry: a frosted annular arc orbiting slowly over two breathing glow orbs &mdash; the field stays soft, the ring edge stays crisp.' },
+  { key:'blobs', name:'Breathing Blobs', draw:blobs, fresh:true,
+    note:'Flat organic shapes from a harmonic polar curve &mdash; r(&theta;) with 3 seeded sine harmonics whose phases drift with t, so each blob breathes. Contemporary album-art energy; one closed path per blob.' },
+  { key:'ribbons', name:'Ribbons', draw:ribbons, fresh:true,
+    note:'Three or four thick round-capped ribbons flowing across on plain ground &mdash; each a two-sine polyline whose phases slide in opposite directions. Big negative space, slow current.' },
+  { key:'squircles', name:'Squircle Stack', draw:squircles, fresh:true,
+    note:'Concentric rotated rounded squares, off-center, alternating ink / paper / ground so inner layers punch holes. Layers counter-rotate at different rates &mdash; barely, like a mobile.' },
+  { key:'phyllo', name:'Phyllotaxis', draw:phyllo, fresh:true,
+    note:'Golden-angle dot spiral (&theta; = i &middot; 137.5&deg;, r &prop; &radic;i) clipped off-center; every k-th dot swaps to the second ink. The whole field rotates imperceptibly and dots pulse a few percent.' },
+  { key:'warp', name:'Warp Stripes', draw:warpStripes, fresh:true,
+    note:'A field of thin vertical stripes displaced by a traveling sine &mdash; mostly paper with seeded ink accents, so it reads as fabric in a breeze rather than an op-art poster.' },
+  { key:'capsules', name:'Capsule Stack', draw:capsules, fresh:true,
+    note:'Stacked full-round capsules of seeded length and alignment, each drifting horizontally on its own slow sine &mdash; the Wrapped-poster grammar, calmed down.' },
+  { key:'truchet', name:'Quarter Truchet', draw:truchet,
+    note:'v1 keeper, modernized: more blank cells for negative space, and each quarter-round pie wobbles &plusmn;4&deg; on its own phase while dots breathe. Still the variety king.' },
+  { key:'waves', name:'Wave Bands', draw:waves,
+    note:'v1 keeper: stacked flat sine bands; alternate bands now drift in opposite directions &mdash; the most literal &ldquo;audio&rdquo; geometry, in slow motion.' },
+  { key:'orbits', name:'Orbit Rings', draw:orbits,
+    note:'v1 keeper, modernized: fewer, thinner rings with more air, counter-rotating at seeded speeds around an off-center hub &mdash; a dial idling.' },
+  { key:'pipes', name:'Pipes', draw:pipes,
+    note:'v1 keeper: round-capped EQ columns whose heights now oscillate &plusmn;5% on individual phases &mdash; an equalizer at rest.' },
+];
+const ARCHIVED = [
+  { key:'sunset', name:'Sunset Arcs', draw:sunset,
+    note:'Concentric off-center discs over a horizon band. Handsome, but unmistakably 1970s print.' },
+  { key:'fan', name:'Checker Fan', draw:fan,
+    note:'Polar checkerboard warped from a corner. Great texture, too op-art-poster for the product.' },
+  { key:'blocks', name:'Bauhaus Blocks', draw:blocks,
+    note:'Circle + bars + quarter-round grammar. The most literally Bauhaus &mdash; and the most dated on a phone screen.' },
+];
+
+
+/* == v4 families, revised in v5 =================================
+   Same contract as everything below: draw(ctx, size, rng, palette, t),
+   deterministic in (seed, t), t = 0 is the static cover. ============== */
+
+/* frame throttle for the expensive families - a skipped frame leaves the
+   canvas showing its previous image; the first paint always renders, and
+   the initial deadline is staggered so tiles don't all recompute together.
+   `force` lets a composite family (type-over-ground) own the throttle. */
+function throttled(x, t, hz){
+  const c = x.canvas;
+  if (c._th === undefined){ c._th = t + Math.random() / hz; return true; }
+  if (t < c._th) return false;
+  c._th = t + 1 / hz;
+  return true;
+}
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+function toRGB(hex, k){              /* k>0 -> toward white, k<0 -> toward black */
+  const n = parseInt(hex.slice(1), 16), tgt = k < 0 ? 0 : 255, m = Math.abs(k);
+  const ch = sh => { const v = (n >> sh) & 255; return v + (tgt - v) * m; };
+  return [ch(16), ch(8), ch(0)];
+}
+function sat(c, k){                  /* push channels away from luma */
+  const l = .3 * c[0] + .59 * c[1] + .11 * c[2];
+  return c.map(v => Math.max(0, Math.min(255, l + (v - l) * k)));
+}
+const css = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+
+/* -- OKLab: perceptual interpolation. sRGB lerp between two stops of
+   similar lightness and opposing hue passes through grey (mud); OKLab
+   keeps chroma up along the path. ------------------------------------ */
+function srgbToOklab(c){
+  const f = v => { v /= 255; return v <= .04045 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); };
+  const R = f(c[0]), G = f(c[1]), B = f(c[2]);
+  const l = Math.cbrt(.4122214708 * R + .5363325363 * G + .0514459929 * B);
+  const m = Math.cbrt(.2119034982 * R + .6806995451 * G + .1073969566 * B);
+  const s = Math.cbrt(.0883024619 * R + .2817188376 * G + .6299787005 * B);
+  return [.2104542553 * l + .7936177850 * m - .0040720468 * s,
+          1.9779984951 * l - 2.4285922050 * m + .4505937099 * s,
+          .0259040371 * l + .7827717662 * m - .8086757660 * s];
+}
+function oklabToSrgb(L, a, b){
+  const l = (L + .3963377774 * a + .2158037573 * b) ** 3;
+  const m = (L - .1055613458 * a - .0638541728 * b) ** 3;
+  const s = (L - .0894841775 * a - 1.2914855480 * b) ** 3;
+  const g = v => {
+    v = v <= .0031308 ? 12.92 * v : 1.055 * Math.pow(Math.max(v, 0), 1 / 2.4) - .055;
+    return Math.max(0, Math.min(255, v * 255));
+  };
+  return [g(4.0767416621 * l - 3.3077115913 * m + .2309699292 * s),
+          g(-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s),
+          g(-.0041960863 * l - .7034186147 * m + 1.7076147010 * s)];
+}
+
+/* -- A. Fluid Marble ------------------------------------------------
+   v5: palettes are SELECTED from a curated set, never generated. Every
+   entry is five hand-picked stops (ground / deep ink / saturated mid /
+   hot accent / highlight) drawn from oto's brand tokens - traditional
+   Japanese colours - or from the reference board's ink-on-dark pairs.
+   The seed picks one and jitters it only inside safe bounds: +-8 deg of
+   hue and +-0.03 lightness, in OKLab. */
+const MARBLE = [
+  { n:'Ruri x Shu',        m:'serious energetic', c:['#080F1C','#12305C','#2A5FB0','#EB6101','#FFD9A8'] },
+  { n:'Ai x Hi',           m:'serious energetic', c:['#04141F','#004C71','#007BBB','#D3381C','#F3C79E'] },
+  { n:'Suo x Kohaku',      m:'warm',              c:['#150F0D','#43261F','#9E3D3F','#BF783A','#E9CBA0'] },
+  { n:'Kikyo x Sakura',    m:'playful calm',      c:['#0E0D1B','#302C63','#5654A2','#F0A0B4','#FBE4EC'] },
+  { n:'Moegi Ink',         m:'calm energetic',    c:['#181A13','#2C3B18','#5C7D1E','#AACF53','#EEF1E5'] },
+  { n:'Byakuroku Wash',    m:'calm',              c:['#DDE6CC','#4E6B22','#7BA428','#AACF53','#FAFCF5'] },
+  { n:'Tamamushi x Wakakusa', m:'calm playful',   c:['#05161A','#0E4A4E','#00A3AF','#C3D825','#E7F6DE'] },
+  { n:'Sumi x Yamabuki',   m:'serious warm',      c:['#100F0E','#33312E','#595857','#F8B500','#F6E3B4'] },
+  { n:'Tokiwa x Akane',    m:'energetic serious', c:['#05150E','#0A4A2C','#007B43','#B7282E','#EFD6B8'] },
+  { n:'Edomurasaki x Tsutsuji', m:'playful',      c:['#120C18','#3A2A55','#745399','#E95295','#F9CBDF'] },
+  { n:'Konpeki x Shu',     m:'energetic calm',    c:['#061620','#02557E','#007BBB','#EB6101','#FFE0B0'] },
+  { n:'Seiji x Suo',       m:'warm calm',         c:['#0F1512','#3A4A40','#819C8B','#9E3D3F','#E4E9DE'] },
+];
+function marblePick(R, mood){
+  const set = mood ? MARBLE.filter(p => p.m.includes(mood)) : MARBLE;
+  return set[Math.floor(R() * set.length)] || MARBLE[0];
+}
+/* 256-entry ramp, built once per draw: OKLab lerp + smootherstep, then
+   one sRGB conversion per LUT entry instead of one per pixel. */
+function rampLUT(hexes, pos, hueDeg, dL){
+  const k = Math.cos(hueDeg * Math.PI / 180), n = Math.sin(hueDeg * Math.PI / 180);
+  const labs = hexes.map(h => {
+    const o = srgbToOklab(toRGB(h, 0));
+    return [o[0] + dL, o[1] * k - o[2] * n, o[1] * n + o[2] * k];
+  });
+  const lut = new Uint8Array(768);
+  for (let i = 0; i < 256; i++){
+    const f = i / 255;
+    let j = 1; while (j < pos.length - 1 && f > pos[j]) j++;
+    let u = clamp01((f - pos[j - 1]) / (pos[j] - pos[j - 1]));
+    u = u * u * u * (u * (u * 6 - 15) + 10);
+    const A = labs[j - 1], B = labs[j];
+    const c = oklabToSrgb(A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u);
+    lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2];
+  }
+  return lut;
+}
+
+/* Inigo Quilez domain warping: f = fbm(p + b*fbm(p + a*fbm(p))). */
+function vhash(ix, iy, sd){
+  let h = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + sd) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y, sd){
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10);   /* quintic - no creases */
+  const uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+  const a = vhash(ix, iy, sd),     b = vhash(ix + 1, iy, sd);
+  const c = vhash(ix, iy + 1, sd), d = vhash(ix + 1, iy + 1, sd);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm5(x, y, sd){
+  let s = 0, a = .5, f = 1;
+  for (let i = 0; i < 5; i++){ s += a * vnoise(x * f, y * f, sd + i * 7919); f *= 2.02; a *= .5; }
+  return s;
+}
+const FLW = 144;
+function fluid(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 11)) return;
+  const c = x.canvas;
+  /* seeded params - pull order frozen */
+  const P = marblePick(R, c._mood);
+  c._palName = P.n;
+  const sd = (R() * 2147483647) | 0;
+  const zoom = 1.35 + R() * .95, rot = R() * TAU;
+  const wA = 3.6 + R() * 2.0, wB = 3.2 + R() * 2.2;
+  const ox = R() * 60, oy = R() * 60;
+  const sp1 = .04 + R() * .045, sp2 = .028 + R() * .035, ph = R() * TAU;
+  const p1 = .34 + R() * .06, p2 = .61 + R() * .06, p3 = .85 + R() * .04;
+  const lut = rampLUT(P.c, [0, p1, p2, p3, 1], (R() - .5) * 16, (R() - .5) * .06);
+  const hi = (p3 * 255) | 0, hot = [lut[hi * 3], lut[hi * 3 + 1], lut[hi * 3 + 2]];
+  let st = c._fl;
+  if (!st){
+    const off = document.createElement('canvas');
+    off.width = off.height = FLW;
+    const octx = off.getContext('2d');
+    st = c._fl = { off, octx, img: octx.createImageData(FLW, FLW) };
+  }
+  const d = st.img.data;
+  const cs = Math.cos(rot) * zoom / FLW, sn = Math.sin(rot) * zoom / FLW;
+  const dx = t * sp1, dy = t * sp2;
+  const j1 = Math.sin(t * .07 + ph) * .7, j2 = Math.cos(t * .05 + ph) * .7;
+  let i = 0;
+  for (let py = 0; py < FLW; py++){
+    for (let px = 0; px < FLW; px++, i += 4){
+      const u = px * cs - py * sn + ox, v = px * sn + py * cs + oy;
+      const q1 = fbm5(u + dx, v, sd), q2 = fbm5(u + 5.2, v + 1.3 - dy, sd);
+      const wx = u + wA * q1, wy = v + wA * q2;
+      const r1 = fbm5(wx + 1.7 + j1, wy + 9.2, sd);
+      const r2 = fbm5(wx + 8.3, wy + 2.8 + j2, sd);
+      const f = clamp01((fbm5(u + wB * r1, v + wB * r2, sd) - .36) * 2.25 + .48);
+      const o = ((f * 255) | 0) * 3;
+      /* hot veins where the warp stretches hardest, smoky shading from q1 */
+      const dr1 = r1 - .5, dr2 = r2 - .5;
+      const vein = Math.min(1, (dr1 * dr1 + dr2 * dr2) * 8) * .38;
+      const sh = .74 + clamp01((q1 - .34) * 2.4 + .5) * .40;
+      const dt = ((px * 5 + py * 3) % 7 - 3) * .6;   /* dither kills 8-bit banding */
+      d[i]     = (lut[o] + (hot[0] - lut[o]) * vein) * sh + dt;
+      d[i + 1] = (lut[o + 1] + (hot[1] - lut[o + 1]) * vein) * sh + dt;
+      d[i + 2] = (lut[o + 2] + (hot[2] - lut[o + 2]) * vein) * sh + dt;
+      d[i + 3] = 255;
+    }
+  }
+  st.octx.putImageData(st.img, 0, 0);
+  x.imageSmoothingEnabled = true;
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(st.off, -1, -1, s + 2, s + 2);
+}
+
+/* -- B. Halftone ----------------------------------------------------
+   v5: five orthogonal seeded variation channels so two audios that share
+   an emoji never share a cover - ink set, dot pitch, silhouette
+   scale/rotation/crop, global screen angle, misregistration magnitude. */
+
+const HTW = 168;
+const HT_EMOJI = ['\u{1F9EA}','\u{1F98A}','\u{1F30D}','\u{1F3A7}','\u{1F319}','\u{1F41F}','\u{1F680}','\u{2615}','\u{1F41D}','\u{1F3B7}'];
+/* curated ink sets - all from oto's brand tokens (voice colours + stock) */
+const HT_INKS = [
+  { n:'asagi/shu',      i:['#00A3AF','#EB6101','#181A13'], p:'#FAFCF5' },
+  { n:'ruri/kurenai',   i:['#1E50A2','#C22645','#12141C'], p:'#F2EDDF' },
+  { n:'moegi/sumi',     i:['#7BA428','#595857','#181A13'], p:'#F4F7EE' },
+  { n:'kikyo/tsutsuji', i:['#5654A2','#E95295','#1A1620'], p:'#FFFFFF' },
+  { n:'tokiwa/kohaku',  i:['#007B43','#BF783A','#14140F'], p:'#F1EBDC' },
+  { n:'konpeki/yamabuki', i:['#007BBB','#F8B500','#101418'], p:'#FAFCF5' },
+  { n:'sumi/shu',       i:['#595857','#EB6101','#181A13'], p:'#F4F7EE' },
+  { n:'seiji/akane',    i:['#819C8B','#B7282E','#171310'], p:'#F0EADB' },
+];
+
+function htSource(R, useEmoji, emoji){
+  const off = document.createElement('canvas');
+  off.width = off.height = HTW;
+  const o = off.getContext('2d', { willReadFrequently: true });
+  if (useEmoji){
+    o.filter = `blur(${HTW * .012}px)`;                 /* dot gain */
+    o.font = `${HTW * .84}px "Apple Color Emoji","Segoe UI Emoji",sans-serif`;
+    o.textAlign = 'center'; o.textBaseline = 'middle';
+    o.fillText(emoji, HTW * .5, HTW * .53);
+    o.filter = 'none';
+  } else {
+    /* one harmonic blob printed as a mis-registered duotone: the same shape
+       on three plates, each nudged - R -> ink1, G -> ink2, B -> shadow */
+    const cx = HTW * (.44 + R() * .12), cy = HTW * (.44 + R() * .12);
+    const rad = HTW * (.30 + R() * .07);
+    const h = [R() * TAU, R() * TAU, R() * TAU];
+    const blob = (dx, dy, k) => {
+      o.beginPath();
+      for (let i = 0; i <= 120; i++){
+        const th = i / 120 * TAU;
+        const rr = rad * k * (1 + .24 * Math.sin(3 * th + h[0]) + .13 * Math.sin(5 * th + h[1]) + .08 * Math.sin(7 * th + h[2]));
+        const px = cx + dx + Math.cos(th) * rr, py = cy + dy + Math.sin(th) * rr;
+        i ? o.lineTo(px, py) : o.moveTo(px, py);
+      }
+      o.closePath(); o.fill();
+    };
+    o.globalCompositeOperation = 'lighter';
+    o.filter = `blur(${HTW * .03}px)`;
+    o.fillStyle = '#ff0000'; blob(-rad * .045, -rad * .03, 1);
+    o.fillStyle = '#00ff00'; blob(rad * .05, rad * .035, .96);
+    o.fillStyle = '#0000ff'; blob(rad * .14, rad * .13, .62);
+    o.filter = 'none'; o.globalCompositeOperation = 'source-over';
+  }
+  const px = o.getImageData(0, 0, HTW, HTW).data;
+  const dens = [new Float32Array(HTW * HTW), new Float32Array(HTW * HTW), new Float32Array(HTW * HTW)];
+  for (let i = 0, p = 0; i < HTW * HTW; i++, p += 4){
+    const al = px[p + 3] / 255;
+    if (al < .01) continue;
+    if (useEmoji){
+      /* subtractive separation with grey-component removal - real plates */
+      const cy = 1 - px[p] / 255, mg = 1 - px[p + 1] / 255, yl = 1 - px[p + 2] / 255;
+      const k = Math.min(cy, mg, yl);
+      dens[0][i] = al * Math.min(1, (cy - k) * 1.45 + (yl - k) * .22);
+      dens[1][i] = al * Math.min(1, (mg - k) * 1.35 + (yl - k) * .72);
+      dens[2][i] = al * Math.min(.8, k * .78);         /* key plate stays a shadow */
+    } else {
+      /* plates weighted in opposite directions so the blob prints as a
+         two-ink gradient instead of three inks muddying the same area */
+      const gx = (i % HTW) / HTW, gy = (i / HTW | 0) / HTW;
+      dens[0][i] = al * px[p] / 255 * (.30 + .80 * (1 - gx));
+      dens[1][i] = al * px[p + 1] / 255 * (.30 + .80 * gx);
+      dens[2][i] = al * px[p + 2] / 255 * (.18 + .55 * gy);
+    }
+  }
+  return dens;
+}
+function htSample(buf, bx, by){
+  if (bx < 0 || by < 0 || bx > HTW - 1.01 || by > HTW - 1.01) return 0;
+  const ix = bx | 0, iy = by | 0, fx = bx - ix, fy = by - iy, o = iy * HTW + ix;
+  return buf[o] * (1 - fx) * (1 - fy) + buf[o + 1] * fx * (1 - fy)
+       + buf[o + HTW] * (1 - fx) * fy + buf[o + HTW + 1] * fx * fy;
+}
+function halftone(x, s, R, pal, t, fixedEmoji, force){
+  if (!force && !throttled(x, t, 16)) return;
+  const c = x.canvas;
+  const useEmoji = fixedEmoji ? true : R() < .68;
+  const emoji = fixedEmoji || pick(R, HT_EMOJI);
+  /* --- the five collision-avoidance channels --- */
+  const set = pick(R, HT_INKS);                              /* 1. ink + stock */
+  const pitch = s / (14 + Math.floor(R() * 18));             /* 2. coarse..fine */
+  const zoom = .72 + R() * 1.25;                             /* 3. scale (>1 crops) */
+  const spin = (R() - .5) * .9;                              /*    rotation */
+  const shx = (R() - .5) * .30, shy = (R() - .5) * .30;      /*    crop offset */
+  const aoff = R() * Math.PI / 2;                            /* 4. screen angle */
+  const mis = .06 + R() * .5;                                /* 5. misregistration */
+  c._palName = set.n;
+  const ang = [15, 75, 45].map(d => d * Math.PI / 180 + aoff);
+  const reg = [0, 1, 2].map(() => [(R() - .5) * pitch * mis, (R() - .5) * pitch * mis]);
+  const gain = .95 + R() * .3, brz = R() * TAU, dph = R() * TAU;
+  const key = (c._id || '') + '|' + useEmoji + emoji;
+  if (!c._ht || c._htKey !== key){ c._ht = htSource(mulberry32(fnv1a(key)), useEmoji, emoji); c._htKey = key; }
+  const dens = c._ht;
+
+  x.fillStyle = set.p; x.fillRect(0, 0, s, s);
+  /* the shape breathes and turns: a pure transform on the sampling coords */
+  const zm = zoom * (1 + .045 * Math.sin(t * .42 + brz)), rt = spin + .05 * Math.sin(t * .27 + dph);
+  const cr = Math.cos(rt) / zm, sr = Math.sin(rt) / zm;
+  const px0 = shx + .012 * Math.sin(t * .33 + dph), py0 = shy + .012 * Math.cos(t * .21 + brz);
+  const reach = Math.ceil(s * .78 / pitch);
+  x.globalCompositeOperation = 'multiply';
+  for (let k = 0; k < 3; k++){
+    const ca = Math.cos(ang[k]), sa = Math.sin(ang[k]);
+    const path = new Path2D();
+    for (let j = -reach; j <= reach; j++){
+      for (let i = -reach; i <= reach; i++){
+        const gx = i * pitch + reg[k][0], gy = j * pitch + reg[k][1];
+        const dx = s * .5 + gx * ca - gy * sa, dy = s * .5 + gx * sa + gy * ca;
+        if (dx < -pitch || dy < -pitch || dx > s + pitch || dy > s + pitch) continue;
+        const u = dx / s - .5 + px0, v = dy / s - .5 + py0;
+        const d = htSample(dens[k], (u * cr - v * sr + .5) * HTW, (u * sr + v * cr + .5) * HTW);
+        if (d < .035) continue;
+        const rr = pitch * .63 * Math.sqrt(Math.min(1, d * gain));   /* area ~ density */
+        path.moveTo(dx + rr, dy);
+        path.arc(dx, dy, rr, 0, TAU);
+      }
+    }
+    x.fillStyle = set.i[k];
+    x.globalAlpha = k === 2 ? .92 : .85;
+    x.fill(path);
+  }
+  x.globalAlpha = 1;
+  x.globalCompositeOperation = 'source-over';
+}
+
+/* -- C. Ink Patterns ------------------------------------------------
+   v5: ONE pattern per cover, composed as a poster - consistent margin,
+   one focal element, centred or deliberately cropped at the bleed. */
+
+const INK_STOCK = [
+  ['#F1EBDC','#15130F','shikkoku on cream'],   ['#F4F7EE','#181A13','shikkoku on byakuroku'],
+  ['#FAFCF5','#1E50A2','ruri on gofun'],       ['#F2EDDF','#9E3D3F','suo on cream'],
+  ['#F4F7EE','#5C7D1E','moegi on byakuroku'],  ['#F1EBDC','#004C71','ai on cream'],
+  ['#FFFFFF','#595857','sumi on shironeri'],   ['#F2EDDF','#D3381C','hi on cream'],
+];
+const INK_M = .065;                     /* one poster margin for every family */
+function inkStart(x, s, R){
+  const st = pick(R, INK_STOCK);
+  x.canvas._palName = st[2];
+  x.fillStyle = st[0]; x.fillRect(0, 0, s, s);
+  x.save();
+  x.beginPath(); x.rect(s * INK_M, s * INK_M, s * (1 - 2 * INK_M), s * (1 - 2 * INK_M)); x.clip();
+  return st;
+}
+
+/* one nest of concentric rings whose centres walk off-axis */
+function inkRings(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const [paper, ink] = inkStart(x, s, R);
+  const crop = R() < .38;
+  const cx = s * (crop ? (R() < .5 ? .16 : .84) : .5 + (R() - .5) * .18);
+  const cy = s * (crop ? .5 + (R() - .5) * .5 : .5 + (R() - .5) * .18);
+  const rad = s * (crop ? .72 + R() * .22 : .40 + R() * .05);
+  const rings = 9 + Math.floor(R() * 9);
+  const gap = rad / rings, lw = gap * (.34 + R() * .16);
+  const dir = R() * TAU, spin = (R() - .5) * .3, drift = gap * (.9 + R() * .7);
+  x.save();
+  x.beginPath(); x.arc(cx, cy, rad, 0, TAU); x.clip();
+  x.strokeStyle = ink; x.lineWidth = lw;
+  for (let i = 1; i <= rings; i++){
+    const k = i / rings, an = dir + t * spin;
+    x.beginPath();
+    x.arc(cx + Math.cos(an) * drift * k, cy + Math.sin(an) * drift * k, gap * i - lw * .5, 0, TAU);
+    x.stroke();
+  }
+  x.fillStyle = ink;                                   /* focal: the solid eye */
+  x.beginPath(); x.arc(cx, cy, gap * .55, 0, TAU); x.fill();
+  x.restore();
+  x.restore();
+}
+
+/* iso-contour bands of a harmonic blob field - topographic op-art */
+function inkContours(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const [paper, ink] = inkStart(x, s, R);
+  const cx = s * (.42 + R() * .16), cy = s * (.42 + R() * .16);
+  const base = s * (.10 + R() * .06);
+  const h = [{ n: 2 + Math.floor(R() * 2), a: .30 + R() * .16, p: R() * TAU, w: .17 + R() * .12 },
+             { n: 4 + Math.floor(R() * 2), a: .16 + R() * .10, p: R() * TAU, w: -.13 - R() * .12 },
+             { n: 7 + Math.floor(R() * 3), a: .07 + R() * .05, p: R() * TAU, w: .09 + R() * .1 }];
+  const sp = s * (.030 + R() * .016) * (1 + .07 * Math.sin(t * .33 + h[0].p));
+  const slide = R() < .5 ? 1 : -1;
+  const N = Math.ceil(s * .95 / sp) + 3, SEG = 96;
+  const rAt = (k, th) => {
+    const fall = 1 / (1 + Math.abs(k) * .13);
+    let r = base + k * sp;
+    for (const q of h) r += base * q.a * fall * Math.sin(q.n * th + q.p + t * q.w * slide);
+    return r;
+  };
+  x.fillStyle = ink;
+  for (let k = -2; k < N; k += 2){
+    x.beginPath();
+    for (let lvl = 0; lvl < 2; lvl++){
+      const kk = k + lvl;
+      for (let i = 0; i <= SEG; i++){
+        const th = i / SEG * TAU, r = Math.max(0, rAt(kk, th));
+        const px = cx + Math.cos(th) * r, py = cy + Math.sin(th) * r;
+        i ? x.lineTo(px, py) : x.moveTo(px, py);
+      }
+      x.closePath();
+    }
+    x.fill('evenodd');
+  }
+  x.restore();
+}
+
+/* one ray burst filling the sheet, thin/thick spokes, slow rotation */
+function inkBurst(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const [paper, ink] = inkStart(x, s, R);
+  const edge = R() < .45;
+  const ox = s * (edge ? (R() < .5 ? .08 : .92) : .5 + (R() - .5) * .14);
+  const oy = s * (edge ? .5 + (R() - .5) * .6 : .5 + (R() - .5) * .14);
+  const spokes = 14 + Math.floor(R() * 16) * 2;
+  const spin = (R() - .5) * .12, ph = R() * TAU, thin = .16 + R() * .16;
+  x.fillStyle = ink;
+  for (let i = 0; i < spokes; i++){
+    const a0 = ph + t * spin + i / spokes * TAU;
+    const w = TAU / spokes * (i % 2 ? thin : .40 + R() * .12);
+    x.beginPath(); x.moveTo(ox, oy);
+    x.arc(ox, oy, s * 1.6, a0, a0 + w); x.closePath(); x.fill();
+  }
+  const rr = s * (.10 + R() * .07);                    /* focal: hub + hairline */
+  x.fillStyle = paper;
+  x.beginPath(); x.arc(ox, oy, rr, 0, TAU); x.fill();
+  x.strokeStyle = ink; x.lineWidth = s * .012;
+  x.beginPath(); x.arc(ox, oy, rr * (1.45 + .05 * Math.sin(t * .5 + ph)), 0, TAU); x.stroke();
+  x.restore();
+}
+
+/* hex line lattice over the full sheet with one solid focal cell */
+function inkHex(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const [paper, ink] = inkStart(x, s, R);
+  const r = s * (.055 + R() * .035);
+  const lw = r * (.13 + .02 * Math.sin(t * .4));
+  const dx = r * 1.732, dy = r * 1.5;
+  const cols = Math.ceil(s / dx) + 2, rows = Math.ceil(s / dy) + 2;
+  const fx = s * (.25 + R() * .5), fy = s * (.25 + R() * .5), fr = r * (1.2 + R() * .9);
+  const drift = Math.sin(t * .18) * .5;
+  x.strokeStyle = ink; x.lineWidth = lw; x.lineJoin = 'round';
+  for (let j = -1; j < rows; j++) for (let i = -1; i < cols; i++){
+    const hx = i * dx + (j & 1 ? dx / 2 : 0) + dx * drift, hy = j * dy;
+    x.beginPath();
+    for (let k = 0; k < 6; k++){
+      const a = k * TAU / 6 + Math.PI / 6;
+      const px = hx + Math.cos(a) * r * .94, py = hy + Math.sin(a) * r * .94;
+      k ? x.lineTo(px, py) : x.moveTo(px, py);
+    }
+    x.closePath();
+    if (Math.hypot(hx - fx, hy - fy) < fr){ x.fillStyle = ink; x.fill(); }   /* focal cluster */
+    x.stroke();
+  }
+  x.restore();
+}
+
+/* -- D. Editorial Type over a generated ground ----------------------
+   The v3 favourite, composed over each of the three v5 grounds. */
+function coverScrim(x, s, dark){
+  const gr = x.createLinearGradient(0, 0, 0, s);
+  if (dark){                                            /* legibility scrim */
+    gr.addColorStop(0, 'rgba(8,7,5,.62)'); gr.addColorStop(.55, 'rgba(8,7,5,.30)');
+    gr.addColorStop(1, 'rgba(8,7,5,.66)');
+  } else {                                              /* paper veil for ink */
+    gr.addColorStop(0, 'rgba(244,247,238,.86)'); gr.addColorStop(.60, 'rgba(244,247,238,.60)');
+    gr.addColorStop(1, 'rgba(244,247,238,.06)');
+  }
+  x.fillStyle = gr; x.fillRect(0, 0, s, s);
+}
+function editorialGround(x, s, R, pal, t){
+  if (!throttled(x, t, 11)) return;
+  const sm = SAMPLES[Math.floor(R() * SAMPLES.length)];
+  const g = Math.floor(R() * 3);
+  if (g === 0){
+    fluid(x, s, R, pal, t, true);
+  } else if (g === 1){
+    halftone(x, s, R, pal, t, sm.emoji, true);
+  } else {
+    (R() < .5 ? inkContours : inkRings)(x, s, R, pal, t, true);
+  }
+  const dark = g !== 2;
+  coverScrim(x, s, dark);
+  editorialType(x, s, sm, dark ? '#fff' : '#181A13', dark ? .78 : .62);
+}
+
+const V4 = [
+  { key:'fluid', name:'Fluid Marble', draw:fluid, fresh:true,
+    note:'<strong>v5 change:</strong> the palette is no longer computed from the mood colours &mdash; seeded hue arithmetic is what made the old ones ugly. It is now <strong>seeded selection from twelve curated five-stop palettes</strong> (ground / deep ink / saturated mid / hot accent / highlight), each one taken from oto&rsquo;s locked brand tokens &mdash; the traditional Japanese colour set &mdash; or from the reference board&rsquo;s ink-on-dark pairs. The seed picks one and jitters it only inside safe bounds: &plusmn;8&deg; of hue and &plusmn;0.03 lightness, applied in OKLab. Ramp interpolation is <strong>OKLab</strong> too, so a deep blue reaching a hot coral keeps its chroma instead of passing through grey (that grey pass is exactly what made the old mid-tones muddy); the ramp is baked into a 256-entry LUT once per draw, so there is one colour conversion per LUT entry rather than one per pixel. The palette name is printed under each tile &mdash; point at the ones that work. <strong>Algorithm unchanged:</strong> Inigo Quilez domain warping, <code>f = fbm(p + b&middot;fbm(p + a&middot;fbm(p)))</code>, three warp levels of 5-octave quintic value noise into a 144&nbsp;px buffer, upscaled with bilinear smoothing, dithered &plusmn;1.5/255. <strong>Portability:</strong> iOS = a Metal <code>colorEffect</code> shader, free on GPU; web = small buffer at 11&nbsp;fps (~6&nbsp;ms per tile per update); static share SVG cannot do per-pixel maths &mdash; render the same JS at <code>t=0</code> to a PNG once at generation time and reference that bitmap.' },
+  { key:'halftone', name:'Halftone', draw:halftone, fresh:true,
+    note:'<strong>v5 change:</strong> five orthogonal seeded channels now separate two audios that share an emoji &mdash; <strong>(1)</strong> ink pair + paper stock from eight curated brand sets (colour is what the eye discriminates first), <strong>(2)</strong> dot pitch from 14 to 31 dots across, which changes the texture character entirely, <strong>(3)</strong> silhouette scale 0.72&ndash;1.97 with rotation and crop offset, so the shape can over-zoom and bleed off-frame until it reads as abstract form rather than &ldquo;an emoji&rdquo;, <strong>(4)</strong> a global screen-angle offset applied to all three plates, <strong>(5)</strong> misregistration magnitude. <strong>Algorithm:</strong> the shape is rasterised <em>once</em> into a 168&nbsp;px three-plate density buffer &mdash; emoji via subtractive separation with grey-component removal, or a harmonic blob as a mis-registered duotone &mdash; then sampled on three rotated lattices with dot <em>area</em> proportional to density (<code>r &prop; &radic;d</code>) and <code>multiply</code> compositing. Animation is a pure sampling transform; the buffer never re-rasterises, and each plate is a single <code>Path2D</code> fill. <strong>Portability: the strong one.</strong> Web canvas as shown, SwiftUI <code>Canvas</code> circles, and a share page as ~1500 literal <code>&lt;circle&gt;</code> elements &mdash; resvg renders that natively, same picture at any resolution.' },
+  { key:'halftone-same', name:'Halftone &mdash; same emoji, six seeds', draw:(x, s, R, pal, t) => halftone(x, s, R, pal, t, '\u{1F98A}'), fresh:true,
+    note:'<strong>The collision test.</strong> Every tile in this row is the same fox emoji; only the seed differs. <strong>The space:</strong> 8 ink sets &times; 18 pitches &times; ~5 distinguishable zoom steps &times; ~6 rotations &times; ~6 crop offsets &times; ~6 angle offsets &times; ~4 misregistration levels &asymp; <strong>1.2 million</strong> raw tuples; being deliberately conservative and counting only <em>visually distinct</em> buckets (8 &times; 6 &times; 8 &times; 6 &times; 3) gives <strong>&asymp;6,900</strong>. For a library holding 10 audios that all share one emoji, the birthday probability of any two landing in the same perceptual bucket is <code>1 - &prod;(1 - k/6900)</code> for k=1..9 &asymp; <strong>0.65%</strong> (at 1.2M tuples it is 0.004%). <strong>Belt and braces:</strong> if you want a hard guarantee, store a small integer <code>cover_salt</code> on the audio row &mdash; at creation, hash the variant tuple, and if it already exists in that user&rsquo;s library bump the salt and re-derive. The salt is written once and never changes, so the cover stays deterministic and render-anywhere forever after.' },
+  { key:'ink-rings', name:'Ink &mdash; Offset Rings', draw:inkRings, fresh:true,
+    note:'<strong>v5 change: one pattern per cover.</strong> The v4 grid of mixed cells is gone; each ink cover is now a single idea filling the sheet with a consistent 6.5% margin, either centred or cropped at the bleed. Here: one nest of concentric rings whose centres walk progressively off-axis along a seeded direction that rotates with <code>t</code>, with a solid hub as the focal point &mdash; the &ldquo;Twisted&rdquo; grammar. Stroke weight is a fixed fraction of ring spacing, so the rhythm stays even at any ring count. <strong>Portability:</strong> arcs only &mdash; SwiftUI <code>Path</code> 1:1, share SVG is a direct <code>&lt;circle&gt;</code> transcription.' },
+  { key:'ink-contour', name:'Ink &mdash; Contour Bands', draw:inkContours, fresh:true,
+    note:'A polar blob <code>r(&theta;)</code> with three seeded harmonics, drawn as filled iso-bands at <code>k&middot;spacing</code> where harmonic amplitude decays as <code>1/(1+|k|&middot;0.13)</code> &mdash; bands hug the island tightly and relax toward circles at the frame edge, which is what makes it read as topography rather than as wobbly rings. Each band is one even-odd annulus path; the contours ripple as the harmonic phases drift. <strong>Portability:</strong> one <code>&lt;path fill-rule=&quot;evenodd&quot;&gt;</code> per band, resvg-safe.' },
+  { key:'ink-burst', name:'Ink &mdash; Ray Burst', draw:inkBurst, fresh:true,
+    note:'One fan filling the sheet: alternating thin and thick wedges from a seeded origin (centred, or pushed to an edge so the rays run off the frame), rotating imperceptibly, with a paper hub and hairline ring as the focal element. <strong>Portability:</strong> wedges are two lines and an arc &mdash; trivial in SwiftUI and in SVG.' },
+  { key:'ink-hex', name:'Ink &mdash; Hex Lattice', draw:inkHex, fresh:true,
+    note:'A full-bleed hexagonal line maze with one solid focal cell pair, the lattice drifting sideways and the stroke breathing a few percent. The most textural of the four &mdash; it works best as a ground under type. <strong>Portability:</strong> stroked polygons; identical in SwiftUI and SVG.' },
+  { key:'editorial-ground', name:'Editorial Type over a ground', draw:editorialGround, fresh:true,
+    note:'<strong>The likely finalist.</strong> The v3 Editorial Type treatment &mdash; big lowercase title, every third word in Fraunces italic, oto&rsquo;s real metadata as a mono strap &mdash; composed over each of the three v5 grounds (the ground is chosen by the seed: fluid marble, halftone, or ink). Dark grounds get a top-and-bottom scrim and white type; the ink poster gets a paper veil and ink type. The type carries the meaning, the seeded ground carries mood and uniqueness, and both come from the same <code>(id, mood)</code> seed. On iOS the type is a SwiftUI <code>Text</code> overlay over the <code>Canvas</code> ground (free wrapping and Dynamic Type); on share pages it is <code>&lt;text&gt;</code> over the ground&rsquo;s SVG or PNG.' },
+];
+
+/* \u2500\u2500 v3: typography-led direction mockups \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+const SAMPLES = [
+  { title:'Performance Drug Research: Field Briefing', emoji:'\u{1F9EA}', mood:'serious', meta:'7 min \u00B7 en' },
+  { title:'La Segunda Guerra Mundial en 10 Minutos',   emoji:'\u{1F30D}', mood:'warm',    meta:'10 min \u00B7 es' },
+  { title:'Bedtime Story: The Fox and the Star',       emoji:'\u{1F98A}', mood:'calm',    meta:'5 min \u00B7 en' },
+];
+
+function wrapText(x, text, font, maxW){
+  x.font = font;
+  const lines = []; let line = '';
+  for (const w of text.split(' ')){
+    const t = line ? line + ' ' + w : w;
+    if (line && x.measureText(t).width > maxW){ lines.push(line); line = w; }
+    else line = t;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+function clampLines(lines, max){
+  if (lines.length <= max) return lines;
+  const out = lines.slice(0, max);
+  out[max - 1] += '\u2026';
+  return out;
+}
+
+/* A \u2014 Title Card: the Apple Music move, with oto color instead of a generic gradient */
+function titleCard(x, s, sm){
+  const [a, b] = PALETTES[sm.mood];
+  const g = x.createLinearGradient(0, 0, s * .4, s);
+  g.addColorStop(0, mix(a, -.1)); g.addColorStop(1, mix(b, -.5));
+  x.fillStyle = g; x.fillRect(0, 0, s, s);
+  x.fillStyle = 'rgba(255,255,255,.07)';
+  x.beginPath(); x.arc(s * .88, s * .06, s * .5, 0, 7); x.fill();
+  const fs = s * .082;
+  x.textBaseline = 'top'; x.textAlign = 'left'; x.fillStyle = '#fff';
+  const lines = clampLines(wrapText(x, sm.title, `600 ${fs}px Jost`, s * .82), 4);
+  lines.forEach((ln, i) => x.fillText(ln, s * .09, s * .09 + i * fs * 1.18));
+  /* emoji chip bottom-left */
+  const cy = s * .84, cx = s * .17;
+  x.fillStyle = 'rgba(255,255,255,.2)';
+  x.beginPath(); x.arc(cx, cy, s * .085, 0, 7); x.fill();
+  x.font = `${s * .09}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(sm.emoji, cx, cy + s * .006);
+  /* meta bottom-right */
+  x.font = `500 ${s * .042}px "Spline Sans Mono"`; x.textAlign = 'right';
+  x.fillStyle = 'rgba(255,255,255,.78)';
+  x.fillText(sm.meta, s * .92, cy);
+  x.textAlign = 'left'; x.textBaseline = 'alphabetic';
+}
+
+/* B \u2014 Editorial Type: the daylist move \u2014 big lowercase type, one voice-word in serif italic */
+function editorial(x, s, sm){
+  const [a, b, bg] = PALETTES[sm.mood];
+  const g = x.createLinearGradient(0, 0, 0, s);
+  g.addColorStop(0, mix(a, .8)); g.addColorStop(.6, mix(b, .66)); g.addColorStop(1, mix(a, .58));
+  x.fillStyle = g; x.fillRect(0, 0, s, s);
+  editorialType(x, s, sm, mix(bg, -.65), 1);
+}
+/* the type layout on its own, so v5 can set it over a generated ground */
+function editorialType(x, s, sm, ink, strapA, lay){
+  lay = lay || 0;
+  const strapY = lay === 2 ? s * .88 : s * .1;
+  const titleY = lay === 1 ? s * .50 : lay === 2 ? s * .17 : s * .26;
+  x.textBaseline = 'top'; x.textAlign = 'left';
+  x.fillStyle = ink;
+  x.globalAlpha = strapA;
+  x.font = `500 ${s * .042}px "Spline Sans Mono"`;
+  x.fillText(('oto \u00B7 ' + sm.mood + ' \u00B7 ' + sm.meta).toUpperCase(), s * .09, strapY);
+  x.globalAlpha = 1;
+  const words = sm.title.toLowerCase().replace(/:/g, '').split(' ');
+  const fs = s * .1, lineH = fs * 1.14, x0 = s * .09;
+  let cx = x0, cy = titleY;
+  words.forEach((w, i) => {
+    const face = fw => (i % 3 === 1) ? `italic 600 ${fw}px Fraunces` : `600 ${fw}px Jost`;
+    let fw = fs;
+    x.font = face(fw);
+    let ww = x.measureText(w).width;
+    /* a single unbreakable word wider than the column shrinks to fit */
+    while (ww > s * .83 && fw > fs * .40){ fw *= .88; x.font = face(fw); ww = x.measureText(w).width; }
+    const sp = x.measureText(' ').width;
+    if (cx > x0 && cx + ww > s * .92){ cx = x0; cy += lineH; }
+    if (cy > s * .78) return;
+    x.fillText(w, cx, cy);
+    cx += ww + sp;
+  });
+  x.font = `${s * .1}px sans-serif`;
+  if (cx + s * .1 > s * .92){ cx = x0; cy += lineH; }
+  if (cy <= s * .82) x.fillText(sm.emoji, cx, cy);
+}
+
+/* C \u2014 Type over Field: hybrid \u2014 the v2 glow field as ground, emoji + title as content */
+function typeField(x, s, sm){
+  const pal = PALETTES[sm.mood];
+  glow(x, s, mulberry32(fnv1a(sm.title)), pal, 0);   /* reuse the seeded field */
+  x.fillStyle = 'rgba(8,6,4,.34)'; x.fillRect(0, 0, s, s);
+  x.font = `${s * .3}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(sm.emoji, s * .5, s * .38);
+  const fs = s * .068;
+  x.textAlign = 'left'; x.textBaseline = 'top';
+  const lines = clampLines(wrapText(x, sm.title, `600 ${fs}px Jost`, s * .82), 3);
+  const y0 = s * .9 - lines.length * fs * 1.16 - s * .052;
+  x.fillStyle = 'rgba(255,255,255,.72)';
+  x.font = `500 ${s * .04}px "Spline Sans Mono"`;
+  x.fillText(sm.meta, s * .09, y0);
+  x.fillStyle = '#fff'; x.font = `600 ${fs}px Jost`;
+  lines.forEach((ln, i) => x.fillText(ln, s * .09, y0 + s * .052 + i * fs * 1.16));
+  x.textBaseline = 'alphabetic';
+}
+
+const DIRECTIONS = [
+  { key:'title-card', name:'Title Card', draw:titleCard,
+    note:'Apple Music&rsquo;s auto-cover formula &mdash; title top-left on a color ground &mdash; but the gradient comes from the mood palette and the emoji the user already picked becomes a badge. Zero new content needed; degrades to the emoji chip alone at thumbnail size.' },
+  { key:'editorial', name:'Editorial Type', draw:editorial,
+    note:'The daylist move: big lowercase type on a soft palette sky, with every third word switching to a serif italic so the title reads like a voice, not a label. The mono strap carries mood, length, and language &mdash; oto&rsquo;s real metadata as design material.' },
+  { key:'type-field', name:'Type over Field', draw:typeField,
+    note:'The hybrid: the v2 glow field (same seed contract, seeded by the title) dimmed to a stage, emoji as the hero, title and metadata anchored bottom-left. Animation comes free &mdash; the field breathes behind static type.' },
+];
+
+function renderDirections(){
+  const root = document.getElementById('directions');
+  for (const d of DIRECTIONS){
+    const sec = document.createElement('section');
+    sec.className = 'family';
+    sec.innerHTML =
+      `<div class="fam-head"><span class="tag">direction/${d.key}</span><h2>${d.name}</h2><span class="new">new</span></div>` +
+      `<p class="fam-note">${d.note}</p><div class="row row-dir"></div>`;
+    const row = sec.querySelector('.row');
+    for (const sm of SAMPLES){
+      const tl = document.createElement('div');
+      tl.className = 'tile';
+      const c = document.createElement('canvas');
+      c.width = 440; c.height = 440;
+      const cap = document.createElement('span');
+      cap.className = 'id';
+      cap.textContent = sm.emoji + ' ' + sm.mood;
+      tl.append(c, cap);
+      row.appendChild(tl);
+      d.draw(c.getContext('2d'), 440, sm);
+    }
+    root.appendChild(sec);
+  }
+}
+/* draw after webfonts load so canvas text uses Jost/Fraunces, then once more to be safe */
+document.fonts.ready.then(() => {
+  document.getElementById('directions').replaceChildren();
+  renderDirections();
+});
+renderDirections();
+
+/* \u2500\u2500 page wiring \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+const SEEDS = 6, SIZE = 320;
+let ids = ['aud_9f31c2','aud_04be77','aud_c1a8d0','aud_5e22f9','aud_b70d13','aud_38c6ae'];
+function rerollIds(){
+  ids = Array.from({length: SEEDS}, () =>
+    'aud_' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'));
+}
+
+function buildSections(root, fams){
+  for (const f of fams){
+    const sec = document.createElement('section');
+    sec.className = 'family';
+    sec.innerHTML =
+      `<div class="fam-head"><span class="tag">family/${f.key}</span><h2>${f.name}</h2>` +
+      (f.fresh ? '<span class="new">new</span>' : '') + `</div>` +
+      `<p class="fam-note">${f.note}</p><div class="row" data-fam="${f.key}"></div>`;
+    root.appendChild(sec);
+  }
+}
+buildSections(document.getElementById('v4'), V4);
+buildSections(document.getElementById('families'), FAMILIES);
+buildSections(document.getElementById('archived'), ARCHIVED);
+const ALL = V4.concat(FAMILIES, ARCHIVED);
+
+const visible = new Set();
+const io = new IntersectionObserver(es => {
+  for (const e of es) e.isIntersecting ? visible.add(e.target) : visible.delete(e.target);
+});
+
+function paint(c, t){
+  c.getContext('2d').setTransform(1, 0, 0, 1, 0, 0);
+  c._fam.draw(c.getContext('2d'), SIZE, mulberry32(fnv1a(c._id)), palette(c._id, c._mood), t);
+}
+
+function tile(fam, id, mood, pinned){
+  const d = document.createElement('div');
+  d.className = 'tile' + (pinned ? ' pinned' : '');
+  const c = document.createElement('canvas');
+  c.width = SIZE; c.height = SIZE;
+  c._fam = fam; c._id = id; c._mood = mood;
+  const label = document.createElement('span');
+  label.className = 'id';
+  label.textContent = (pinned ? '\u2192 ' : '') + id;
+  d.append(c, label);
+  paint(c, 0);
+  if (c._palName) label.textContent += '  \u00b7  ' + c._palName;
+  io.observe(c);
+  return d;
+}
+
+function render(){
+  const pin = document.getElementById('pin').value.trim();
+  const mood = document.getElementById('mood').value || null;
+  visible.clear();
+  for (const f of ALL){
+    const row = document.querySelector(`.row[data-fam="${f.key}"]`);
+    for (const c of row.querySelectorAll('canvas')) io.unobserve(c);
+    row.replaceChildren();
+    if (pin) row.appendChild(tile(f, pin, mood, true));
+    for (const id of ids) row.appendChild(tile(f, id, mood, false));
+  }
+}
+
+/* animation loop: only visible canvases repaint */
+let playing = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+const playBtn = document.getElementById('play');
+function syncPlay(){ playBtn.textContent = playing ? 'Pause motion' : 'Play motion'; }
+playBtn.addEventListener('click', () => { playing = !playing; syncPlay(); });
+syncPlay();
+
+requestAnimationFrame(function frame(now){
+  if (playing && !document.hidden){
+    const t = now / 1000;
+    for (const c of visible) paint(c, t);
+    gTick(t);
+  }
+  requestAnimationFrame(frame);
+});
+
+document.getElementById('reroll').addEventListener('click', () => { rerollIds(); render(); });
+document.getElementById('mood').addEventListener('change', render);
+let deb;
+document.getElementById('pin').addEventListener('input', () => {
+  clearTimeout(deb); deb = setTimeout(render, 250);
+});
+render();
+
+/* == cover generator ==============================================
+   The chosen direction (Editorial Type over a ground), rollable. Grid
+   tiles are drawn STATIC at t=0 - that is how covers are seen almost
+   everywhere in the app, and a dozen animated per-pixel fluid tiles
+   would melt the page. Motion happens on hover and in the zoom view. */
+
+const POOL = [
+  { title:'Morning brief',                                   emoji:'\u2600\ufe0f', mood:'calm',      meta:'3 min \u00b7 en' },
+  { title:'Performance Drug Research: Field Briefing',       emoji:'\u{1F9EA}',    mood:'serious',   meta:'7 min \u00b7 en' },
+  { title:'La Segunda Guerra Mundial en 10 Minutos',         emoji:'\u{1F30D}',    mood:'warm',      meta:'10 min \u00b7 es' },
+  { title:'Bedtime Story: The Fox and the Star',             emoji:'\u{1F98A}',    mood:'calm',      meta:'5 min \u00b7 en' },
+  { title:'Q3 board memo',                                   emoji:'\u{1F4C8}',    mood:'serious',   meta:'12 min \u00b7 en' },
+  { title:'C\u00f3mo funciona la fotos\u00edntesis',         emoji:'\u{1F331}',    mood:'playful',   meta:'4 min \u00b7 es' },
+  { title:'Kubernetes Networking Deep Dive',                 emoji:'\u{1F6E0}\ufe0f', mood:'serious', meta:'22 min \u00b7 en' },
+  { title:'Unterrichtsmaterialienzusammenstellung',          emoji:'\u{1F4DA}',    mood:'serious',   meta:'9 min \u00b7 de' },
+  { title:'The Very Long Title That Refuses To Stop Before The Fourth Line', emoji:'\u{1F4DC}', mood:'warm', meta:'18 min \u00b7 en' },
+  { title:'Weekly recipe: miso butter mushrooms',            emoji:'\u{1F344}',    mood:'warm',      meta:'6 min \u00b7 en' },
+  { title:'Sleep',                                           emoji:'\u{1F319}',    mood:'calm',      meta:'45 min \u00b7 en' },
+  { title:'Investor update, October',                        emoji:'\u{1F4BC}',    mood:'serious',   meta:'8 min \u00b7 en' },
+  { title:'Historia del caf\u00e9 en tres actos',            emoji:'\u2615',       mood:'warm',      meta:'11 min \u00b7 es' },
+  { title:'How Whales Sing',                                 emoji:'\u{1F40B}',    mood:'playful',   meta:'6 min \u00b7 en' },
+  { title:'Terms of Service, Read Aloud',                    emoji:'\u{1F4C4}',    mood:'serious',   meta:'31 min \u00b7 en' },
+  { title:'Trail notes: Sierra de Guadarrama',               emoji:'\u{1F3D4}\ufe0f', mood:'calm',   meta:'14 min \u00b7 es' },
+  { title:'Standup, but shorter',                            emoji:'\u23f1\ufe0f', mood:'energetic', meta:'2 min \u00b7 en' },
+  { title:'Rocket Launch Countdown Explained',               emoji:'\u{1F680}',    mood:'energetic', meta:'7 min \u00b7 en' },
+  { title:'Jazz for a rainy commute',                        emoji:'\u{1F3B7}',    mood:'calm',      meta:'26 min \u00b7 en' },
+  { title:'Beekeeping in the city',                          emoji:'\u{1F41D}',    mood:'playful',   meta:'9 min \u00b7 en' },
+];
+
+const GRID = 12, GPX = 400;
+let gSpecs = [], gKeep = [], gHover = null, gZoomCv = null;
+
+const gv = id => document.getElementById(id).value;
+const gSeedNew = () => Math.floor(Math.random() * 0x10000).toString(16).toUpperCase().padStart(4, '0');
+
+function specOf(seed){
+  seed = seed.toUpperCase();
+  const R = mulberry32(fnv1a('cover:' + seed));
+  const sample = POOL[Math.floor(R() * POOL.length)];
+  const ground = gv('gGround') || pick(R, ['fluid', 'halftone', 'ink']);
+  const lay = gv('gLayout') === '' ? Math.floor(R() * 3) : +gv('gLayout');
+  return { seed, sample, ground, lay, mood: gv('gMood') || sample.mood, pinned: false };
+}
+
+/* one cover, any size, any t - returns the descriptor for the label */
+function drawCover(x, s, spec, t){
+  const c = x.canvas;
+  c._mood = spec.mood; c._id = 'gen_' + spec.seed;
+  const R = mulberry32(fnv1a('gen:' + spec.seed + spec.ground));
+  const pal = PALETTES[spec.mood] || PALETTES.calm;
+  if (spec.ground === 'fluid') fluid(x, s, R, pal, t, true);
+  else if (spec.ground === 'halftone') halftone(x, s, R, pal, t, spec.sample.emoji, true);
+  else pick(R, [inkRings, inkContours, inkBurst, inkHex])(x, s, R, pal, t, true);
+  const dark = spec.ground === 'fluid';   /* halftone prints on light stock */
+  coverScrim(x, s, dark);
+  editorialType(x, s, spec.sample, dark ? '#fff' : '#181A13', dark ? .78 : .74, spec.lay);
+  return spec.ground + ' \u00b7 ' + (c._palName || spec.mood);
+}
+
+function gCanvas(px, spec, cls){
+  const c = document.createElement('canvas');
+  c.width = c.height = px * 2;                 /* 2x backing = a real @2x device */
+  c.style.width = c.style.height = px + 'px';
+  if (cls) c.className = cls;
+  drawCover(c.getContext('2d'), px * 2, spec, 0);
+  return c;
+}
+
+/* -- grid ---------------------------------------------------------- */
+function gTile(i){
+  const d = document.createElement('div');
+  d.className = 'gtile';
+  d.innerHTML = '<canvas width="' + GPX + '" height="' + GPX + '"></canvas>' +
+    '<button class="gbtn zoom" title="Enlarge / see in context">\u2922</button>' +
+    '<button class="gbtn pin" title="Pin (keeps it through Generate)">\u2606</button>' +
+    '<div class="cap"><span class="sd"></span><span class="mt"></span></div>';
+  const cv = d.querySelector('canvas');
+  cv.addEventListener('click', e => e.shiftKey ? gPin(i) : gRollOne(i));
+  cv.addEventListener('mouseenter', () => { gHover = { cv, spec: gSpecs[i] }; });
+  cv.addEventListener('mouseleave', () => { gHover = null; gPaint(i); });
+  d.querySelector('.pin').addEventListener('click', () => gPin(i));
+  d.querySelector('.zoom').addEventListener('click', () => gZoom(gSpecs[i]));
+  d.querySelector('.mt').addEventListener('click', () => gZoom(gSpecs[i]));
+  return d;
+}
+function gPaint(i){
+  const d = document.getElementById('gGrid').children[i], sp = gSpecs[i];
+  const cv = d.querySelector('canvas');
+  sp.desc = drawCover(cv.getContext('2d'), GPX, sp, 0);
+  d.querySelector('.sd').textContent = sp.seed;
+  d.querySelector('.mt').textContent = sp.desc;
+  d.classList.toggle('pin', sp.pinned);
+  d.querySelector('.pin').textContent = sp.pinned ? '\u2605' : '\u2606';
+}
+/* keep one set free of repeated titles - a dozen tiles out of a 20-title
+   pool collide often, and repeats read as a bug rather than as variety */
+function freshSpec(used){
+  for (let k = 0; k < 14; k++){
+    const sp = specOf(gSeedNew());
+    if (!used.has(sp.sample.title)){ used.add(sp.sample.title); return sp; }
+  }
+  return specOf(gSeedNew());
+}
+function gRollOne(i){
+  if (gSpecs[i].pinned) return;
+  const used = new Set(gSpecs.filter((s, j) => s && j !== i).map(s => s.sample.title));
+  gSpecs[i] = freshSpec(used); gPaint(i);
+}
+function gRollAll(){
+  const used = new Set(gSpecs.filter(s => s && s.pinned).map(s => s.sample.title));
+  for (let i = 0; i < GRID; i++) if (!gSpecs[i] || !gSpecs[i].pinned){ gSpecs[i] = freshSpec(used); gPaint(i); }
+}
+function gPin(i){
+  const sp = gSpecs[i];
+  sp.pinned = !sp.pinned;
+  if (sp.pinned) gKeep.push(sp);
+  else gKeep = gKeep.filter(k => k !== sp);
+  gPaint(i); gKeeps();
+}
+
+/* -- keepers ------------------------------------------------------- */
+function gKeeps(){
+  const wrap = document.getElementById('gKeep'), row = wrap.querySelector('.keeps-row');
+  wrap.hidden = gKeep.length === 0;
+  row.replaceChildren();
+  for (const sp of gKeep){
+    const d = document.createElement('div');
+    d.className = 'ktile';
+    const cv = gCanvas(132, sp);
+    cv.addEventListener('click', () => gZoom(sp));
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.innerHTML = '<span class="sd">' + sp.seed + '</span><span class="mt">' + (sp.desc || sp.ground) + '</span>';
+    const rm = document.createElement('button');
+    rm.className = 'gbtn pin'; rm.textContent = '\u00d7'; rm.title = 'Remove keeper';
+    rm.addEventListener('click', () => {
+      gKeep = gKeep.filter(k => k !== sp);
+      sp.pinned = false;
+      const i = gSpecs.indexOf(sp); if (i >= 0) gPaint(i);
+      gKeeps();
+    });
+    d.append(cv, rm, cap);
+    row.appendChild(d);
+  }
+}
+
+/* -- zoom + real-size context -------------------------------------- */
+function gZoom(spec){
+  const dlg = document.getElementById('gZoom');
+  const big = gCanvas(420, spec);
+  gZoomCv = { cv: big, spec };
+  const ctxRow = (px, label, extra) => {
+    const w = document.createElement('div');
+    w.className = 'ctxrow';
+    w.innerHTML = '<div class="ctxlab">' + label + '</div>';
+    const body = document.createElement('div');
+    body.className = 'ctxbody' + (extra ? ' ' + extra : '');
+    body.appendChild(gCanvas(px, spec));
+    if (extra === 'lib'){
+      const tx = document.createElement('div');
+      tx.className = 'libtx';
+      tx.innerHTML = '<b>' + spec.sample.title + '</b><span>' + spec.sample.meta + '</span>';
+      body.appendChild(tx);
+    }
+    if (extra === 'player'){
+      const tx = document.createElement('div');
+      tx.className = 'playtx';
+      tx.innerHTML = '<b>' + spec.sample.title + '</b><span>' + spec.sample.meta +
+        '</span><div class="bar"><i></i></div>';
+      body.appendChild(tx);
+    }
+    w.appendChild(body);
+    return w;
+  };
+  dlg.replaceChildren();
+  const head = document.createElement('div');
+  head.className = 'zhead';
+  head.innerHTML = '<span class="sd">' + spec.seed + '</span>' +
+    '<span class="mt">' + spec.ground + ' \u00b7 layout ' + spec.lay + ' \u00b7 ' + spec.mood + '</span>';
+  const close = document.createElement('button');
+  close.textContent = 'Close'; close.className = 'zclose';
+  close.addEventListener('click', () => dlg.close());
+  head.appendChild(close);
+  const cols = document.createElement('div');
+  cols.className = 'zcols';
+  const left = document.createElement('div');
+  left.appendChild(big);
+  const right = document.createElement('div');
+  right.className = 'zctx';
+  right.append(
+    ctxRow(56, 'library row \u00b7 56px', 'lib'),
+    ctxRow(110, 'grid cell \u00b7 110px', ''),
+    ctxRow(260, 'player artwork \u00b7 260px', 'player'));
+  cols.append(left, right);
+  dlg.append(head, cols);
+  dlg.showModal();
+}
+
+/* -- motion: hover tile + open zoom only, ~12fps -------------------- */
+function gTick(t){
+  for (const h of [gHover, gZoomCv]){
+    if (!h || !h.cv.isConnected) continue;
+    if (h.cv._gl !== undefined && t - h.cv._gl < 1 / 12) continue;
+    h.cv._gl = t;
+    drawCover(h.cv.getContext('2d'), h.cv.width, h.spec, t);
+  }
+}
+
+/* -- wiring -------------------------------------------------------- */
+(function initGen(){
+  const grid = document.getElementById('gGrid');
+  for (let i = 0; i < GRID; i++) grid.appendChild(gTile(i));
+  gRollAll();
+  document.getElementById('gRoll').addEventListener('click', gRollAll);
+  for (const id of ['gGround', 'gMood', 'gLayout'])
+    document.getElementById(id).addEventListener('change', gRollAll);
+  const openSeed = () => {
+    const v = document.getElementById('gSeed').value.trim();
+    if (v) gZoom(specOf(v));
+  };
+  document.getElementById('gGo').addEventListener('click', openSeed);
+  document.getElementById('gSeed').addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ e.preventDefault(); openSeed(); }
+  });
+  document.getElementById('gZoom').addEventListener('close', () => { gZoomCv = null; });
+  document.addEventListener('keydown', e => {
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+    if (document.getElementById('gZoom').open) return;
+    if (e.key === ' ' || e.key.toLowerCase() === 'g'){ e.preventDefault(); gRollAll(); }
+  });
+  /* canvas text needs the webfonts - redraw once they land */
+  document.fonts.ready.then(() => { for (let i = 0; i < GRID; i++) gPaint(i); gKeeps(); });
+})();
+</script>

@@ -6,6 +6,18 @@ extension API {
         let email: String
         var username: String?   // var: local UI patches these after edits
         var avatarUrl: String?
+        var coverStyle: String
+
+        enum CodingKeys: String, CodingKey { case email, username, avatarUrl, coverStyle }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            email = try c.decode(String.self, forKey: .email)
+            username = try c.decodeIfPresent(String.self, forKey: .username)
+            avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl)
+            // Default keeps the app working against servers that predate coverStyle.
+            coverStyle = try c.decodeIfPresent(String.self, forKey: .coverStyle) ?? "classic"
+        }
     }
 
     static func me() async throws -> Me {
@@ -19,6 +31,16 @@ extension API {
         var req = request("api/me", method: "PUT")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["username": username])
+        let (data, _) = try await send(req)
+        return try JSONDecoder().decode(Me.self, from: data)
+    }
+
+    /// Saves the user's generative cover style ("classic"/"ink"/"halftone")
+    /// via the same profile-update route as username edits.
+    static func updateCoverStyle(_ style: String) async throws -> Me {
+        var req = request("api/me", method: "PUT")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["coverStyle": style])
         let (data, _) = try await send(req)
         return try JSONDecoder().decode(Me.self, from: data)
     }

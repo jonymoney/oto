@@ -220,6 +220,11 @@ struct SettingsView: View {
             .listRowBackground(Theme.surface)
 
             Section("App") {
+                NavigationLink {
+                    CoverStyleEditView(model: model)
+                } label: {
+                    LabeledContent("Cover style", value: (model.me?.coverStyle ?? "classic").capitalized)
+                }
                 Toggle("Haptics", isOn: $hapticsEnabled)
             }
             .listRowBackground(Theme.surface)
@@ -404,6 +409,51 @@ struct SettingsView: View {
                 deleteError = "Check your connection and try again."
             }
         }
+    }
+}
+
+// MARK: - Cover style
+
+/// Same picker as onboarding. Optimistic: the tile highlights immediately and
+/// reverts (with the shared settings error toast) if the save fails.
+private struct CoverStyleEditView: View {
+    @Bindable var model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section {
+                CoverStylePicker(selection: styleBinding)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .listRowBackground(Theme.bg)
+            } footer: {
+                Text("New audios you make get generated cover art in this style. Audios from people you follow keep their creator's style.")
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle("Cover style")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var styleBinding: Binding<String> {
+        Binding(
+            get: { model.me?.coverStyle ?? "classic" },
+            set: { style in
+                let old = model.me?.coverStyle ?? "classic"
+                guard style != old else { return }
+                model.me?.coverStyle = style
+                Task {
+                    do {
+                        model.me = try await API.updateCoverStyle(style)
+                        Haptics.success()
+                    } catch {
+                        model.me?.coverStyle = old
+                        model.errorMessage = "Couldn't save that setting."
+                    }
+                }
+            }
+        )
     }
 }
 

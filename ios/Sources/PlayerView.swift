@@ -57,7 +57,7 @@ final class PlayerModel {
         hasAudio = false
         position = 0
         self.item = item
-        artwork = Self.renderArtwork(id: item.id, mood: item.mood)
+        artwork = Self.renderArtwork(for: item)
         loading = true; errorMessage = nil
         duration = item.durationSec ?? 0
         try? AVAudioSession.sharedInstance().setCategory(.playback)
@@ -252,8 +252,13 @@ final class PlayerModel {
 
     /// Same deterministic cover as CoverView on screen (same seed/mood → same art),
     /// rendered to a 1024px UIImage for the lock screen / CarPlay.
-    private static func renderArtwork(id: String, mood: String?) -> MPMediaItemArtwork? {
-        let renderer = ImageRenderer(content: CoverView(id: id, mood: mood, size: 512))
+    private static func renderArtwork(for item: AudioItem) -> MPMediaItemArtwork? {
+        let renderer = ImageRenderer(content: CoverView(
+            id: item.id, mood: item.mood, size: 512, style: item.coverStyle,
+            title: item.title,
+            meta: coverMeta(durationSec: item.durationSec, language: item.language),
+            emoji: item.emoji
+        ))
         renderer.scale = 2
         guard let ui = renderer.uiImage else { return nil }
         return artworkWrapping(ui)
@@ -351,18 +356,19 @@ struct PlayerView: View {
             VStack(spacing: 20) {
                 GeometryReader { geo in
                     let side = min(geo.size.width, 300)
-                    CoverView(id: item.id, mood: model.detail?.mood ?? item.mood, size: side)
+                    // Big tier (≥160pt): CoverView composes the editorial type
+                    // layer (title/meta/emoji) itself, so no emoji chip here.
+                    CoverView(
+                        id: item.id, mood: model.detail?.mood ?? item.mood, size: side,
+                        style: model.detail?.coverStyle ?? item.coverStyle,
+                        title: item.title,
+                        meta: coverMeta(
+                            durationSec: model.detail?.durationSec ?? item.durationSec,
+                            language: model.detail?.language ?? item.language
+                        ),
+                        emoji: model.detail?.emoji ?? item.emoji
+                    )
                         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .overlay(alignment: .bottomTrailing) {
-                            let emoji = model.detail?.emoji ?? item.emoji
-                            if let e = emoji, !e.isEmpty {
-                                Text(e)
-                                    .font(.system(size: side * 0.16))
-                                    .padding(side * 0.05)
-                                    .background(.thinMaterial, in: Circle())
-                                    .padding(10)
-                            }
-                        }
                         .frame(maxWidth: .infinity)
                 }
                 .frame(height: 300)
@@ -513,7 +519,12 @@ struct PlayerView: View {
         .task {
             // Render the deterministic cover locally for the share preview —
             // identical art to the server's cover.png, works offline.
-            let renderer = ImageRenderer(content: CoverView(id: item.id, mood: item.mood, size: 300))
+            let renderer = ImageRenderer(content: CoverView(
+                id: item.id, mood: item.mood, size: 300, style: item.coverStyle,
+                title: item.title,
+                meta: coverMeta(durationSec: item.durationSec, language: item.language),
+                emoji: item.emoji
+            ))
             renderer.scale = 2
             if let ui = renderer.uiImage { coverImage = Image(uiImage: ui) }
             await model.load(item: item, auth: auth)

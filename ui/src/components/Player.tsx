@@ -34,7 +34,7 @@ export function PlayerView({ track, engine, pulse = false, onClose, onHistory, o
       </header>
 
       <div className="oto-head">
-        <Cover id={track.id} mood={track.mood} emoji={track.emoji} size={64} className="oto-cover-lg" />
+        <Cover id={track.id} mood={track.mood} emoji={track.emoji} coverStyle={track.coverStyle} size={64} className="oto-cover-lg" />
         <div className="oto-head-text">
           <h1 className="oto-title" title={track.title}>
             {track.title}

@@ -68,7 +68,9 @@ struct MiniPlayer: View {
     private func barCore(_ item: AudioItem) -> some View {
         Button { present(item) } label: {
             HStack(spacing: 12) {
-                CoverView(id: item.id, mood: model.detail?.mood ?? item.mood, size: 40)
+                CoverView(id: item.id, mood: model.detail?.mood ?? item.mood, size: 40,
+                          style: model.detail?.coverStyle ?? item.coverStyle,
+                          emoji: model.detail?.emoji ?? item.emoji)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text(item.title)
                     .lineLimit(1)
