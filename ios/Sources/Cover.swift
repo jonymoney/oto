@@ -188,9 +188,13 @@ enum CoverRenderer {
         defer { lock.unlock() }
         if let t = inflight[k] { return t }
         let t = Task<UIImage, Never>.detached(priority: .userInitiated) {
+            if let disk = loadDisk(k) {
+                finish(k, img: disk, persist: false)
+                return disk
+            }
             let img = renderGround(id: id, mood: mood, style: style, emoji: emoji,
                                    points: points, scale: scale)
-            finish(k, img: img)
+            finish(k, img: img, persist: true)
             return img
         }
         inflight[k] = t
@@ -198,8 +202,11 @@ enum CoverRenderer {
     }
 
     // Synchronous for the same reason: store + clear the in-flight entry.
-    private static func finish(_ k: String, img: UIImage) {
+    // persist: write-through to disk for fresh renders (skipped when the
+    // bitmap just came FROM disk).
+    private static func finish(_ k: String, img: UIImage, persist: Bool) {
         store(img, key: k)
+        if persist { saveDisk(img, key: k) }
         lock.lock()
         inflight[k] = nil
         lock.unlock()
@@ -213,16 +220,46 @@ enum CoverRenderer {
     static func prewarm(id: String, mood: String?, style: String, emoji: String?, size: CGFloat) -> UIImage {
         let k = key(id: id, mood: mood, style: style, emoji: emoji, size: size)
         if let hit = cached(k) { return hit }
+        if let disk = loadDisk(k) {
+            store(disk, key: k)
+            return disk
+        }
         let (points, scale) = bucket(for: size)
         let img = renderGround(id: id, mood: mood, style: style, emoji: emoji,
                                points: points, scale: scale)
         store(img, key: k)
+        saveDisk(img, key: k)
         return img
     }
 
     private static func store(_ img: UIImage, key: String) {
         let px = img.size.width * img.scale * img.size.height * img.scale
         cache.setObject(img, forKey: key as NSString, cost: Int(px) * 4)
+    }
+
+    // MARK: Disk layer — Caches/covers/*.png, named by the cache key. Covers
+    // are regenerable, so they belong in the system-purgeable Caches dir
+    // (survives relaunch, never backed up, wiped by the OS under pressure).
+    // ponytail: no eviction of our own — a few hundred small PNGs at most,
+    // and the OS purges Caches; add LRU trimming only if it ever matters.
+
+    nonisolated(unsafe) private static let diskDir: URL = {
+        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("covers", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }()
+
+    private static func diskURL(_ key: String) -> URL {
+        diskDir.appendingPathComponent(key.replacingOccurrences(of: "/", with: "_") + ".png")
+    }
+
+    private static func loadDisk(_ key: String) -> UIImage? {
+        UIImage(contentsOfFile: diskURL(key).path)
+    }
+
+    private static func saveDisk(_ img: UIImage, key: String) {
+        try? img.pngData()?.write(to: diskURL(key), options: .atomic)
     }
 
     /// Pure CG draw into a bitmap — safe on any thread.
