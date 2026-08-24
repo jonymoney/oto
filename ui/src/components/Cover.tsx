@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { CoverStyle } from '../../../src/types'
 import { fnv1a, mulberry32 } from '../waveform'
-import { drawInk, drawHalftone } from '../covers'
+import { drawInk, drawHalftone, drawTessellation } from '../covers'
 
 // Shared "mesh" cover spec — the iOS app draws the identical pattern so the
 // same audio id + mood always yields the same art on both platforms. Do not
@@ -54,6 +54,7 @@ const RENDERERS: Record<
   classic: (ctx, id, mood, _emoji, W) => drawMesh(ctx, id, mood, W),
   ink: (ctx, id, _mood, _emoji, W) => drawInk(ctx, id, W),
   halftone: (ctx, id, _mood, emoji, W) => drawHalftone(ctx, id, emoji, W),
+  tessellation: (ctx, id, _mood, _emoji, W) => drawTessellation(ctx, id, W),
 }
 
 function drawCover(

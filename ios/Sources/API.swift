@@ -21,7 +21,7 @@ struct AudioItem: Identifiable, Codable, Hashable {
     let visibility: String?
     // MCP client that generated the audio (e.g. "Claude"), when known.
     let clientName: String?
-    // Creator's cover style ("classic"/"ink"/"halftone") — covers always render
+    // Creator's cover style ("classic"/"ink"/"halftone"/"tessellation") — covers always render
     // in the CREATOR's style, so this rides along with every audio payload.
     let coverStyle: String
 

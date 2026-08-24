@@ -4,7 +4,7 @@ export type AudioStatus = 'processing' | 'ready' | 'error'
  * User-selectable generative cover style. An audio always renders in its
  * CREATOR's chosen style, everywhere. Unknown/absent → 'classic'.
  */
-export const COVER_STYLES = ['classic', 'ink', 'halftone'] as const
+export const COVER_STYLES = ['classic', 'ink', 'halftone', 'tessellation'] as const
 export type CoverStyle = (typeof COVER_STYLES)[number]
 
 export function coerceCoverStyle(v: string | null | undefined): CoverStyle {

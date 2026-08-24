@@ -417,6 +417,288 @@ function halftoneSvg(id: string, emoji: string | null, w: number, h: number): st
   )
 }
 
+// ── Tessellation cover ──────────────────────────────────────────────────────
+// Escher-style interlocking tilings (server-side SVG twin of ui/src/covers.ts),
+// frozen at t=0. Pull order (the contract): family floor(R()*3) → [weave,
+// reptile, pinwheel]; then stock, mode, n, rot0, ampF, edge profiles (2,
+// reptile 3), ph, sd — see the lab's PULL-ORDER SPEC. Flat fills only: no
+// defs, no gradients, so no per-audio id suffixes needed.
+
+// Curated stocks — verbatim from the lab. a/b/c tile fills, l hairline ink,
+// d dark flag (drives scrim vs paper veil under share-page type).
+const TESS_STOCK: ReadonlyArray<{ n: string; a: string; b: string; c: string; l: string; d: boolean }> = [
+  { n: 'moegi on byakuroku', a: '#F4F7EE', b: '#AACF53', c: '#7BA428', l: '#2C3B18', d: false },
+  { n: 'sumi woodcut', a: '#F1EBDC', b: '#33312E', c: '#595857', l: '#15130F', d: false },
+  { n: 'ruri on gofun', a: '#FAFCF5', b: '#2A5FB0', c: '#12305C', l: '#12141C', d: false },
+  { n: 'ai night', a: '#04141F', b: '#007BBB', c: '#004C71', l: '#020A10', d: true },
+  { n: 'suo on cream', a: '#F2EDDF', b: '#9E3D3F', c: '#BF783A', l: '#43261F', d: false },
+  { n: 'sumi night', a: '#15130F', b: '#595857', c: '#F1EBDC', l: '#0C0D09', d: true },
+  { n: 'hi on cream', a: '#F2EDDF', b: '#D3381C', c: '#EB6101', l: '#43261F', d: false },
+  { n: 'edomurasaki dusk', a: '#120C18', b: '#745399', c: '#3A2A55', l: '#09060C', d: true },
+]
+const TESS_SEG = 12
+
+/** 32-bit wrapping integer hash — verbatim from the lab (vhash). */
+function vhash(ix: number, iy: number, sd: number): number {
+  let h = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + sd) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+/** Lab's css(toRGB(hex, k)): k>0 → toward white, k<0 → toward black. */
+function tessTint(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16)
+  const tgt = k < 0 ? 0 : 255
+  const m = Math.abs(k)
+  const ch = (sh: number) => {
+    const v = (n >> sh) & 255
+    return (v + (tgt - v) * m) | 0
+  }
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`
+}
+
+const tessShade = (hex: string, i: number, j: number, sd: number): string =>
+  tessTint(hex, (vhash(i + 37, j + 91, sd) - 0.5) * 0.16)
+
+/** Colouring modes: 0 checkerboard (hex: proper 3-colouring), 1 row stripes,
+ *  2 quiet field with sparse accent tiles. tri = hex lattice. */
+function tessColor(
+  st: (typeof TESS_STOCK)[number],
+  mode: number,
+  i: number,
+  j: number,
+  tri: boolean,
+  sd: number,
+): string {
+  if (mode === 1) return ((j % 2) + 2) % 2 ? st.b : st.a
+  if (mode === 2) {
+    const h = vhash(i + 211, j + 57, sd)
+    return h < 0.14 ? st.b : tri && h < 0.2 ? st.c : st.a
+  }
+  if (tri) return [st.a, st.b, st.c][(((i - j) % 3) + 3) % 3]
+  return (((i + j) % 2) + 2) % 2 ? st.b : st.a
+}
+
+/** Edge profile g(u) = Σ cₖ·sin(kπu), normalized so max|g| = 1 over 31 samples. */
+function tessProfile(R: () => number): (u: number) => number {
+  const c1 = (R() * 2 - 1) * 0.6
+  const c2 = R() * 2 - 1
+  const c3 = (R() * 2 - 1) * 0.4
+  let m = 0
+  for (let i = 1; i < 32; i++) {
+    const u = i / 32
+    m = Math.max(m, Math.abs(c1 * Math.sin(Math.PI * u) + c2 * Math.sin(TAU * u) + c3 * Math.sin(3 * Math.PI * u)))
+  }
+  const k = 1 / (m || 1)
+  return (u) => (c1 * Math.sin(Math.PI * u) + c2 * Math.sin(TAU * u) + c3 * Math.sin(3 * Math.PI * u)) * k
+}
+
+interface TessTile {
+  pts: Array<[number, number]>
+  fill: string
+}
+interface Tess {
+  paper: string
+  line: string
+  dark: boolean
+  rot0: number
+  lw: number
+  tiles: TessTile[]
+}
+
+/**
+ * All tiles for one tessellation cover, in the rotated-lattice frame centred
+ * on (s/2, s/2). Pure geometry — identical to tessTiles in ui/src/covers.ts.
+ * Per-tile loops pull NO rng.
+ */
+function tessTiles(id: string, s: number): Tess {
+  const R = mulberry32(fnv1a(id))
+  const fam = Math.floor(R() * 3) // 0 weave, 1 reptile, 2 pinwheel
+  const st = pick(R, TESS_STOCK)
+  const mode = Math.floor(R() * 3)
+  const tiles: TessTile[] = []
+
+  if (fam === 0) {
+    // Weave: square lattice, p1 translation — fine fabric, 8..12 across.
+    const n = 8 + Math.floor(R() * 5)
+    const cell = s / n
+    const rot0 = (R() * Math.PI) / 2
+    const ampF = 0.07 + R() * 0.08
+    const gH = tessProfile(R)
+    const gV = tessProfile(R)
+    const ph = R() * TAU
+    const sd = (R() * 2147483647) | 0
+    const a = ampF * cell * (1 + 0.05 * Math.sin(ph)) // t=0 of the breathing term
+    const lw = Math.max(0.75, cell * 0.03)
+    const m = Math.ceil(n * 0.75) + 1
+    for (let j = -m; j < m; j++) {
+      for (let i = -m; i < m; i++) {
+        const ox = i * cell
+        const oy = j * cell
+        if (Math.hypot(ox + cell / 2, oy + cell / 2) > s * 0.72 + cell) continue
+        const p: Array<[number, number]> = []
+        for (let k = 0; k <= TESS_SEG; k++) {
+          const u = k / TESS_SEG
+          p.push([ox + u * cell, oy + gH(u) * a])
+        }
+        for (let k = 1; k <= TESS_SEG; k++) {
+          const v = k / TESS_SEG
+          p.push([ox + cell + gV(v) * a, oy + v * cell])
+        }
+        for (let k = TESS_SEG - 1; k >= 0; k--) {
+          const u = k / TESS_SEG
+          p.push([ox + u * cell, oy + cell + gH(u) * a])
+        }
+        for (let k = TESS_SEG - 1; k >= 1; k--) {
+          const v = k / TESS_SEG
+          p.push([ox + gV(v) * a, oy + v * cell])
+        }
+        tiles.push({ pts: p, fill: tessShade(tessColor(st, mode, i, j, false, sd), i, j, sd) })
+      }
+    }
+    return { paper: st.a, line: st.l, dark: st.d, rot0, lw, tiles }
+  }
+
+  if (fam === 1) {
+    // Reptile: hex lattice, translation — mid-scale creatures, 3..6 columns.
+    const n = 3 + Math.floor(R() * 4)
+    const rr = s / (1.732 * n)
+    const rot0 = (R() * Math.PI) / 2
+    const ampF = 0.14 + R() * 0.12
+    const prof = [tessProfile(R), tessProfile(R), tessProfile(R)]
+    const ph = R() * TAU
+    const sd = (R() * 2147483647) | 0
+    const a = ampF * rr * (1 + 0.05 * Math.sin(ph))
+    const lw = Math.max(0.75, rr * 0.05)
+    // Pointy-top hexagon, vertices at 90+60k deg.
+    const V: Array<[number, number]> = []
+    for (let k = 0; k < 6; k++) {
+      const an = ((90 + 60 * k) * Math.PI) / 180
+      V.push([rr * Math.cos(an), rr * Math.sin(an)])
+    }
+    // Base curves on edges 0..2; edges 3..5 replay the SAME point arrays
+    // translated by -D[k] and reversed — never re-evaluate the curve.
+    const E = [0, 1, 2].map((k) => {
+      const A = V[k]
+      const B = V[k + 1]
+      const dx = B[0] - A[0]
+      const dy = B[1] - A[1]
+      const len = Math.hypot(dx, dy)
+      const nx = -dy / len
+      const ny = dx / len
+      const pts: Array<[number, number]> = []
+      for (let q = 0; q <= TESS_SEG; q++) {
+        const u = q / TESS_SEG
+        const f = prof[k](u) * a
+        pts.push([A[0] + dx * u + nx * f, A[1] + dy * u + ny * f])
+      }
+      return pts
+    })
+    const D = [0, 1, 2].map((k) => [V[k][0] + V[k + 1][0], V[k][1] + V[k + 1][1]])
+    const tile: Array<[number, number]> = []
+    for (let k = 0; k < 3; k++) for (let q = k ? 1 : 0; q <= TESS_SEG; q++) tile.push(E[k][q])
+    for (let k = 0; k < 3; k++)
+      for (let q = TESS_SEG - 1; q >= (k < 2 ? 0 : 1); q--)
+        tile.push([E[k][q][0] - D[k][0], E[k][q][1] - D[k][1]])
+    const mj = Math.ceil((s * 0.75) / (1.5 * rr)) + 1
+    const mi = Math.ceil((s * 0.75) / (1.732 * rr)) + 2
+    for (let j = -mj; j <= mj; j++) {
+      for (let i = -mi - 2; i <= mi + 2; i++) {
+        const cx = 1.732 * rr * (i + j / 2)
+        const cy = 1.5 * rr * j
+        if (Math.hypot(cx, cy) > s * 0.74 + 2 * rr) continue
+        tiles.push({
+          pts: tile.map((p) => [p[0] + cx, p[1] + cy]),
+          fill: tessShade(tessColor(st, mode, i, j, true, sd), i, j, sd),
+        })
+      }
+    }
+    return { paper: st.a, line: st.l, dark: st.d, rot0, lw, tiles }
+  }
+
+  // Pinwheel: square lattice, p4 rotation — bold figures, 2..4 across.
+  const n = 2 + Math.floor(R() * 3)
+  const cell = s / n
+  const rot0 = (R() * Math.PI) / 2
+  const ampF = 0.16 + R() * 0.1
+  const g1 = tessProfile(R)
+  const g2 = tessProfile(R)
+  const ph = R() * TAU
+  const sd = (R() * 2147483647) | 0
+  const a = ampF * (1 + 0.05 * Math.sin(ph)) // unit-cell space
+  const lw = Math.max(0.75, cell * 0.03)
+  const base: Array<[number, number]> = []
+  for (let k = 0; k <= TESS_SEG; k++) {
+    const u = k / TESS_SEG
+    base.push([u, g1(u) * a])
+  }
+  for (let k = TESS_SEG - 1; k >= 0; k--) {
+    const u = k / TESS_SEG
+    base.push([1 + g1(u) * a, 1 - u])
+  }
+  for (let k = 1; k <= TESS_SEG; k++) {
+    const u = k / TESS_SEG
+    base.push([1 - u, 1 + g2(u) * a])
+  }
+  for (let k = TESS_SEG - 1; k >= 1; k--) {
+    const u = k / TESS_SEG
+    base.push([g2(u) * a, u])
+  }
+  const rho = (p: [number, number]): [number, number] => [1 + p[1], 1 - p[0]]
+  const variants: Array<Array<[number, number]>> = [base]
+  for (let r = 1; r < 4; r++) variants.push(variants[r - 1].map(rho))
+  const OX = [0, 1, 1, 0]
+  const OY = [0, 0, -1, -1]
+  const RIDX = [
+    [0, 3],
+    [1, 2],
+  ]
+  const m = Math.ceil(n * 0.75) + 1
+  for (let j = -m; j < m; j++) {
+    for (let i = -m; i < m; i++) {
+      if (Math.hypot((i + 0.5) * cell, (j + 0.5) * cell) > s * 0.72 + cell * (1 + ampF)) continue
+      const r = RIDX[((i % 2) + 2) % 2][((j % 2) + 2) % 2]
+      const tx = i - OX[r]
+      const ty = j - OY[r]
+      tiles.push({
+        pts: variants[r].map((p) => [(p[0] + tx) * cell, (p[1] + ty) * cell]),
+        fill: tessShade(tessColor(st, mode, i, j, false, sd), i, j, sd),
+      })
+    }
+  }
+  return { paper: st.a, line: st.l, dark: st.d, rot0, lw, tiles }
+}
+
+/** Whether this tessellation cover sits on a dark stock (pulls 0–1 only). */
+function tessIsDark(id: string): boolean {
+  const R = mulberry32(fnv1a(id))
+  void R() // family — pulled to keep the shared order
+  return pick(R, TESS_STOCK).d
+}
+
+/**
+ * Tessellation cover as SVG: one <path> per tile (13-point polylines per
+ * edge), flat fill + hairline stroke, all inside one rotated lattice group.
+ * Worst case ~290 paths — resvg-safe, no defs.
+ */
+function tessellationSvg(id: string, w: number, h: number): string {
+  const s = Math.max(w, h)
+  const t = tessTiles(id, s)
+  let paths = ''
+  for (const tile of t.tiles) {
+    let d = `M${f2(tile.pts[0][0])} ${f2(tile.pts[0][1])}`
+    for (let i = 1; i < tile.pts.length; i++) d += `L${f2(tile.pts[i][0])} ${f2(tile.pts[i][1])}`
+    paths += `<path d="${d}Z" fill="${tile.fill}"/>`
+  }
+  // 4 decimals on the angle — 0.005° at the lattice rim is already sub-pixel.
+  const deg = ((t.rot0 * 180) / Math.PI).toFixed(4)
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">` +
+    `<rect width="${w}" height="${h}" fill="${t.paper}"/>` +
+    `<g transform="translate(${f2(s / 2)} ${f2(s / 2)}) rotate(${deg})" stroke="${t.line}" stroke-width="${f2(t.lw)}" stroke-linejoin="round">${paths}</g></svg>`
+  )
+}
+
 // Style dispatch — new styles register here (open/closed), never as if-chains.
 const COVER_RENDERERS: Record<
   CoverStyle,
@@ -425,6 +707,7 @@ const COVER_RENDERERS: Record<
   classic: (id, mood, _emoji, w, h) => meshSvg(id, mood, w, h),
   ink: (id, _mood, _emoji, w, h) => inkSvg(id, w, h),
   halftone: (id, _mood, emoji, w, h) => halftoneSvg(id, emoji, w, h),
+  tessellation: (id, _mood, _emoji, w, h) => tessellationSvg(id, w, h),
 }
 
 /** The audio's cover in its creator's chosen style, ground only (no type). */
@@ -439,8 +722,10 @@ export function coverSvg(
   return COVER_RENDERERS[style](id, mood, emoji, w, h)
 }
 
-/** Dark grounds get a scrim + light type; ink/halftone paper gets a veil + ink type. */
-const isDarkGround = (style: CoverStyle) => style === 'classic'
+/** Dark grounds get a scrim + light type; paper grounds get a veil + ink type.
+ *  Tessellation is per-seed: three of its eight stocks are dark (stock.d). */
+const isDarkGround = (style: CoverStyle, id: string) =>
+  style === 'classic' || (style === 'tessellation' && tessIsDark(id))
 
 // ── Short links: oto.audio/{username}/{slug} ────────────────────────────────
 
@@ -542,7 +827,7 @@ function sharePage(
   if (rec.clientName) meta.push(`made with ${esc(rec.clientName)}`)
   // Editorial type over the ground (per the lab's editorialType): lowercase
   // title, every third word in serif italic, mono strap of real metadata.
-  const tone = isDarkGround(coverStyle) ? 'dark' : 'light'
+  const tone = isDarkGround(coverStyle, rec.id) ? 'dark' : 'light'
   const strap = esc(
     ['oto', rec.mood, fmtDur(rec.durationSec), rec.language]
       .filter((p): p is string => !!p)

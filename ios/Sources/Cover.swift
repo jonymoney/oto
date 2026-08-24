@@ -7,9 +7,10 @@ import UIKit
 /// platforms. Do not change any PRNG pull order — it must stay bit-for-bit
 /// with the JS. All animation is frozen at t = 0.
 ///
-/// Styles: "classic" (mesh), "ink" (4 sub-families), "halftone".
-/// Unknown/absent style → classic. An audio always renders in its CREATOR's
-/// style (`item.coverStyle`), never the viewer's.
+/// Styles: "classic" (mesh), "ink" (4 sub-families), "halftone",
+/// "tessellation" (3 sub-families). Unknown/absent style → classic. An audio
+/// always renders in its CREATOR's style (`item.coverStyle`), never the
+/// viewer's.
 ///
 /// Rendering: the ground is drawn with CoreGraphics into a bitmap on a
 /// background task and cached (see CoverRenderer) — SwiftUI never re-runs the
@@ -32,8 +33,12 @@ struct CoverView: View {
 
     private var resolvedStyle: String { CoverArt.resolve(style) }
     /// Classic mesh is a dark ground (scrim + light type); ink and halftone
-    /// print on light paper stock (veil + dark ink type).
-    private var darkGround: Bool { resolvedStyle == "classic" }
+    /// print on light paper stock (veil + dark ink type). Tessellation stocks
+    /// carry their own dark flag.
+    private var darkGround: Bool {
+        resolvedStyle == "classic"
+            || (resolvedStyle == "tessellation" && CoverArt.tessStockFor(id: id).dark)
+    }
     private var showsType: Bool { size >= 160 && !(title ?? "").isEmpty }
 
     private var cacheKey: String {
@@ -279,6 +284,8 @@ enum CoverRenderer {
                     CoverArt.drawInk(c, s: s, id: id)
                 case "halftone":
                     CoverArt.drawHalftone(c, s: s, id: id, emoji: emoji)
+                case "tessellation":
+                    CoverArt.drawTessellation(c, s: s, id: id)
                 default:
                     CoverArt.drawClassic(c, s: s, id: id, mood: mood)
                 }
@@ -290,7 +297,7 @@ enum CoverArt {
     static let tau = Double.pi * 2
 
     static func resolve(_ style: String) -> String {
-        style == "ink" || style == "halftone" ? style : "classic"
+        ["ink", "halftone", "tessellation"].contains(style) ? style : "classic"
     }
 
     static func fnv1a(_ s: String) -> UInt32 {
@@ -340,6 +347,9 @@ enum CoverArt {
             return color(pick(&rng, inkStock).paper)
         case "halftone":
             return color(pick(&rng, htInks).paper)
+        case "tessellation":
+            _ = rng.next() // family pull comes first in drawTessellation
+            return color(pick(&rng, tessStock).a)
         default:
             return palette(id: id, mood: mood)[2]
         }
@@ -862,6 +872,279 @@ enum CoverArt {
         return out
     }
 
+    // MARK: - Tessellation (lab: tessWeave/tessReptile/tessPinwheel, t = 0)
+
+    private static let tessSeg = 12
+
+    /// Curated tile stocks — copied verbatim from the lab's TESS_STOCK.
+    /// a/b/c = tile fills (c only for the hex 3-colouring), l = hairline ink,
+    /// dark = dark ground (drives scrim vs paper veil under the type layer).
+    static let tessStock: [(a: Int, b: Int, c: Int, l: Int, dark: Bool)] = [
+        (0xF4F7EE, 0xAACF53, 0x7BA428, 0x2C3B18, false), // moegi on byakuroku
+        (0xF1EBDC, 0x33312E, 0x595857, 0x15130F, false), // sumi woodcut
+        (0xFAFCF5, 0x2A5FB0, 0x12305C, 0x12141C, false), // ruri on gofun
+        (0x04141F, 0x007BBB, 0x004C71, 0x020A10, true),  // ai night
+        (0xF2EDDF, 0x9E3D3F, 0xBF783A, 0x43261F, false), // suo on cream
+        (0x15130F, 0x595857, 0xF1EBDC, 0x0C0D09, true),  // sumi night
+        (0xF2EDDF, 0xD3381C, 0xEB6101, 0x43261F, false), // hi on cream
+        (0x120C18, 0x745399, 0x3A2A55, 0x09060C, true),  // edomurasaki dusk
+    ]
+
+    /// The stock this id's tessellation lands on — replays only the two cheap
+    /// leading pulls (family, stock) for the placeholder ground + dark flag.
+    static func tessStockFor(id: String) -> (a: Int, b: Int, c: Int, l: Int, dark: Bool) {
+        var rng = Mulberry32(seed: fnv1a(id))
+        _ = rng.next() // family
+        return pick(&rng, tessStock)
+    }
+
+    static func drawTessellation(_ c: CGContext, s: Double, id: String) {
+        var rng = Mulberry32(seed: fnv1a(id))
+        // FIRST pull selects the sub-family, then that family draws with the same rng.
+        let family = Int(rng.next() * 3)
+        switch family {
+        case 0: tessWeave(c, s, &rng)
+        case 1: tessReptile(c, s, &rng)
+        default: tessPinwheel(c, s, &rng)
+        }
+    }
+
+    /// JS vhash — 32-bit wrapping integer hash, bit-for-bit with Math.imul.
+    private static func vhash(_ ix: Int32, _ iy: Int32, _ sd: Int32) -> Double {
+        var h = UInt32(bitPattern: ix &* 374761393 &+ iy &* 668265263 &+ sd)
+        h = (h ^ (h >> 13)) &* 1274126177
+        return Double(h ^ (h >> 16)) / 4294967296
+    }
+
+    /// Seeded three-harmonic edge profile, normalized so max|g| = 1 over
+    /// u = i/32, i = 1..31 (exact sampling — part of the porting contract).
+    /// Three pulls: c1, c2, c3. g(0) = g(1) = 0, so corners stay fixed.
+    private static func tessProfile(_ rng: inout Mulberry32) -> (Double) -> Double {
+        let c1 = (rng.next() * 2 - 1) * 0.6
+        let c2 = rng.next() * 2 - 1
+        let c3 = (rng.next() * 2 - 1) * 0.4
+        var m = 0.0
+        for i in 1..<32 {
+            let u = Double(i) / 32
+            m = max(m, abs(c1 * sin(.pi * u) + c2 * sin(tau * u) + c3 * sin(3 * .pi * u)))
+        }
+        let k = 1 / (m == 0 ? 1 : m)
+        return { u in (c1 * sin(.pi * u) + c2 * sin(tau * u) + c3 * sin(3 * .pi * u)) * k }
+    }
+
+    /// Paper fill (no margin clip — tessellations run full bleed). One pull.
+    private static func tessStart(
+        _ c: CGContext, _ s: Double, _ rng: inout Mulberry32
+    ) -> (a: Int, b: Int, c: Int, l: Int, dark: Bool) {
+        let st = pick(&rng, tessStock)
+        c.setFillColor(cgColor(st.a))
+        c.fill(squareRect(s))
+        return st
+    }
+
+    /// Colouring modes: 0 checkerboard (hex: proper 3-colouring), 1 row
+    /// stripes, 2 quiet field with sparse accent tiles. tri = hex lattice.
+    private static func tessColorHex(
+        _ st: (a: Int, b: Int, c: Int, l: Int, dark: Bool),
+        _ mode: Int, _ i: Int, _ j: Int, _ tri: Bool, _ sd: Int32
+    ) -> Int {
+        if mode == 1 { return ((j % 2) + 2) % 2 == 1 ? st.b : st.a }
+        if mode == 2 {
+            let h = vhash(Int32(i + 211), Int32(j + 57), sd)
+            return h < 0.14 ? st.b : (tri && h < 0.20 ? st.c : st.a)
+        }
+        if tri { return [st.a, st.b, st.c][((i - j) % 3 + 3) % 3] }
+        return ((i + j) % 2 + 2) % 2 == 1 ? st.b : st.a
+    }
+
+    /// tessShade — per-tile flat lightness jitter (JS toRGB + css, including
+    /// the `| 0` channel truncation, so fills match the web to the rgb unit).
+    private static func tessShadeColor(_ hex: Int, _ i: Int, _ j: Int, _ sd: Int32) -> CGColor {
+        let k = (vhash(Int32(i + 37), Int32(j + 91), sd) - 0.5) * 0.16
+        let tgt: Double = k < 0 ? 0 : 255
+        let m = abs(k)
+        func ch(_ sh: Int) -> Double {
+            let v = Double((hex >> sh) & 255)
+            return Double(Int(v + (tgt - v) * m)) / 255
+        }
+        return CGColor(srgbRed: ch(16), green: ch(8), blue: ch(0), alpha: 1)
+    }
+
+    /// One tile: fill then hairline stroke sealing the seam.
+    private static func tessCell(
+        _ c: CGContext, _ pts: [(Double, Double)], fill: CGColor, line: CGColor, lw: Double
+    ) {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: pts[0].0, y: pts[0].1))
+        for p in pts.dropFirst() { path.addLine(to: CGPoint(x: p.0, y: p.1)) }
+        path.closeSubpath()
+        c.addPath(path)
+        c.setFillColor(fill)
+        c.fillPath()
+        c.addPath(path)
+        c.setStrokeColor(line)
+        c.setLineWidth(lw)
+        c.strokePath()
+    }
+
+    /// Square lattice, p1 translation: what bulges out of the bottom edge is
+    /// carved into the top; ditto left/right. Fine fabric — 8..12 cells.
+    private static func tessWeave(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let st = tessStart(c, s, &rng)
+        let mode = Int(rng.next() * 3)
+        let n = 8 + Int(rng.next() * 5)
+        let cell = s / Double(n)
+        let rot0 = rng.next() * .pi / 2
+        let ampF = 0.07 + rng.next() * 0.08
+        let gH = tessProfile(&rng), gV = tessProfile(&rng)
+        let ph = rng.next() * tau
+        let sd = Int32(rng.next() * 2147483647)
+        let a = ampF * cell * (1 + 0.05 * sin(ph)) // t = 0 breathing
+        let lw = max(0.75, cell * 0.03)
+        let m = Int(ceil(Double(n) * 0.75)) + 1
+        c.saveGState()
+        c.translateBy(x: s / 2, y: s / 2)
+        c.rotate(by: rot0)
+        c.setLineJoin(.round)
+        let seg = Double(tessSeg)
+        for j in -m..<m {
+            for i in -m..<m {
+                let ox = Double(i) * cell, oy = Double(j) * cell
+                if hypot(ox + cell / 2, oy + cell / 2) > s * 0.72 + cell { continue }
+                var p: [(Double, Double)] = []
+                for k in 0...tessSeg { let u = Double(k) / seg; p.append((ox + u * cell, oy + gH(u) * a)) }
+                for k in 1...tessSeg { let v = Double(k) / seg; p.append((ox + cell + gV(v) * a, oy + v * cell)) }
+                for k in stride(from: tessSeg - 1, through: 0, by: -1) {
+                    let u = Double(k) / seg
+                    p.append((ox + u * cell, oy + cell + gH(u) * a))
+                }
+                for k in stride(from: tessSeg - 1, through: 1, by: -1) {
+                    let v = Double(k) / seg
+                    p.append((ox + gV(v) * a, oy + v * cell))
+                }
+                tessCell(c, p, fill: tessShadeColor(tessColorHex(st, mode, i, j, false, sd), i, j, sd),
+                         line: cgColor(st.l), lw: lw)
+            }
+        }
+        c.restoreGState()
+    }
+
+    /// Hex lattice, translation (Escher's reptiles): three free edge curves,
+    /// replayed reversed on the opposite edges. Proper 3-colouring.
+    private static func tessReptile(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let st = tessStart(c, s, &rng)
+        let mode = Int(rng.next() * 3)
+        let n = 3 + Int(rng.next() * 4)
+        let rr = s / (1.732 * Double(n))
+        let rot0 = rng.next() * .pi / 2
+        let ampF = 0.14 + rng.next() * 0.12
+        let prof = [tessProfile(&rng), tessProfile(&rng), tessProfile(&rng)]
+        let ph = rng.next() * tau
+        let sd = Int32(rng.next() * 2147483647)
+        let a = ampF * rr * (1 + 0.05 * sin(ph))
+        let lw = max(0.75, rr * 0.05)
+        // Pointy-top hexagon, vertices at 90 + 60k deg.
+        var V: [(Double, Double)] = []
+        for k in 0..<6 {
+            let an = Double(90 + 60 * k) * .pi / 180
+            V.append((rr * cos(an), rr * sin(an)))
+        }
+        // Base curves on edges 0..2; the perpendicular is fixed per edge so
+        // the mating edge reuses the SAME computed points, just translated.
+        var E: [[(Double, Double)]] = []
+        for k in 0..<3 {
+            let A = V[k], B = V[k + 1]
+            let dx = B.0 - A.0, dy = B.1 - A.1, len = hypot(dx, dy)
+            let nx = -dy / len, ny = dx / len
+            var pts: [(Double, Double)] = []
+            for q in 0...tessSeg {
+                let u = Double(q) / Double(tessSeg)
+                let f = prof[k](u) * a
+                pts.append((A.0 + dx * u + nx * f, A.1 + dy * u + ny * f))
+            }
+            E.append(pts)
+        }
+        var D: [(Double, Double)] = []
+        for k in 0..<3 { D.append((V[k].0 + V[k + 1].0, V[k].1 + V[k + 1].1)) }
+        // One closed outline, built once (derived edges 3,4 include the end
+        // corner q = 0; edge 5 stops at q = 1 — closePath supplies the rest).
+        var tile: [(Double, Double)] = []
+        for k in 0..<3 {
+            for q in (k > 0 ? 1 : 0)...tessSeg { tile.append(E[k][q]) }
+        }
+        for k in 0..<3 {
+            for q in stride(from: tessSeg - 1, through: k < 2 ? 0 : 1, by: -1) {
+                tile.append((E[k][q].0 - D[k].0, E[k][q].1 - D[k].1))
+            }
+        }
+        let mj = Int(ceil(s * 0.75 / (1.5 * rr))) + 1
+        let mi = Int(ceil(s * 0.75 / (1.732 * rr))) + 2
+        c.saveGState()
+        c.translateBy(x: s / 2, y: s / 2)
+        c.rotate(by: rot0)
+        c.setLineJoin(.round)
+        for j in -mj...mj {
+            for i in (-mi - 2)...(mi + 2) {
+                let cx = 1.732 * rr * (Double(i) + Double(j) / 2)
+                let cy = 1.5 * rr * Double(j)
+                if hypot(cx, cy) > s * 0.74 + 2 * rr { continue }
+                let base = tessColorHex(st, mode, i, j, true, sd)
+                tessCell(c, tile.map { ($0.0 + cx, $0.1 + cy) },
+                         fill: tessShadeColor(base, i, j, sd), line: cgColor(st.l), lw: lw)
+            }
+        }
+        c.restoreGState()
+    }
+
+    /// Square lattice, p4 rotation (Escher's lizards): edge AB free, BC is AB
+    /// rotated -90 deg about B; CD free, DA is CD rotated -90 deg about D.
+    /// Four rotated copies pinwheel around alternating corners.
+    private static func tessPinwheel(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let st = tessStart(c, s, &rng)
+        let mode = Int(rng.next() * 3)
+        let n = 2 + Int(rng.next() * 3)
+        let cell = s / Double(n)
+        let rot0 = rng.next() * .pi / 2
+        let ampF = 0.16 + rng.next() * 0.10
+        let g1 = tessProfile(&rng), g2 = tessProfile(&rng)
+        let ph = rng.next() * tau
+        let sd = Int32(rng.next() * 2147483647)
+        let a = ampF * (1 + 0.05 * sin(ph)) // unit-cell space
+        let lw = max(0.75, cell * 0.03)
+        let seg = Double(tessSeg)
+        var base: [(Double, Double)] = []
+        for k in 0...tessSeg { let u = Double(k) / seg; base.append((u, g1(u) * a)) }
+        for k in stride(from: tessSeg - 1, through: 0, by: -1) {
+            let u = Double(k) / seg
+            base.append((1 + g1(u) * a, 1 - u))
+        }
+        for k in 1...tessSeg { let u = Double(k) / seg; base.append((1 - u, 1 + g2(u) * a)) }
+        for k in stride(from: tessSeg - 1, through: 1, by: -1) {
+            let u = Double(k) / seg
+            base.append((g2(u) * a, u))
+        }
+        // rho(x, y) = (1 + y, 1 - x) in cell units.
+        var variants = [base]
+        for r in 1..<4 { variants.append(variants[r - 1].map { (1 + $0.1, 1 - $0.0) }) }
+        let OX = [0, 1, 1, 0], OY = [0, 0, -1, -1], RIDX = [[0, 3], [1, 2]]
+        let m = Int(ceil(Double(n) * 0.75)) + 1
+        c.saveGState()
+        c.translateBy(x: s / 2, y: s / 2)
+        c.rotate(by: rot0)
+        c.setLineJoin(.round)
+        for j in -m..<m {
+            for i in -m..<m {
+                if hypot((Double(i) + 0.5) * cell, (Double(j) + 0.5) * cell) > s * 0.72 + cell * (1 + ampF) { continue }
+                let r = RIDX[((i % 2) + 2) % 2][((j % 2) + 2) % 2]
+                let tx = Double(i - OX[r]), ty = Double(j - OY[r])
+                let pts = variants[r].map { (($0.0 + tx) * cell, ($0.1 + ty) * cell) }
+                tessCell(c, pts, fill: tessShadeColor(tessColorHex(st, mode, i, j, false, sd), i, j, sd),
+                         line: cgColor(st.l), lw: lw)
+            }
+        }
+        c.restoreGState()
+    }
+
     // MARK: - Scrim / veil under the editorial type (lab: coverScrim)
 
     /// Same stops the Canvas scrim used — a plain SwiftUI gradient now, since
@@ -889,18 +1172,23 @@ enum CoverArt {
 
 // MARK: - Style picker (shared by onboarding and Settings)
 
-/// Three live preview tiles — tap to select. The previews use one fixed sample
-/// id so each style shows its real seeded output.
+/// Live preview tiles — tap to select. The previews use one fixed sample
+/// id so each style shows its real seeded output. 2×2 grid: four 96pt tiles
+/// no longer fit one row on compact widths.
 struct CoverStylePicker: View {
     @Binding var selection: String
     var tileSize: CGFloat = 96
 
     static let styles: [(id: String, label: String)] = [
-        ("classic", "Classic"), ("ink", "Ink"), ("halftone", "Halftone"),
+        ("classic", "Classic"), ("ink", "Ink"),
+        ("halftone", "Halftone"), ("tessellation", "Tessellation"),
     ]
 
     var body: some View {
-        HStack(spacing: 14) {
+        LazyVGrid(
+            columns: [GridItem(.fixed(tileSize), spacing: 14), GridItem(.fixed(tileSize), spacing: 14)],
+            spacing: 14
+        ) {
             ForEach(Self.styles, id: \.id) { style in
                 let selected = selection == style.id
                 Button {

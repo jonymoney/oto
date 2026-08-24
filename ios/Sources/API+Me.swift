@@ -35,7 +35,7 @@ extension API {
         return try JSONDecoder().decode(Me.self, from: data)
     }
 
-    /// Saves the user's generative cover style ("classic"/"ink"/"halftone")
+    /// Saves the user's generative cover style ("classic"/"ink"/"halftone"/"tessellation")
     /// via the same profile-update route as username edits.
     static func updateCoverStyle(_ style: String) async throws -> Me {
         var req = request("api/me", method: "PUT")
