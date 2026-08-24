@@ -743,17 +743,17 @@ enum CoverArt {
         return zero
     }
 
-    /// One harmonic blob printed as a mis-registered duotone. Canvas composites
-    /// three pure-channel plates with 'lighter'; the straight-alpha read-back
-    /// cancels alpha, so each plate reduces to its own blurred coverage mask
-    /// times a gradient weight.
+    /// One harmonic blob printed as a mis-registered duotone — the SAME pure
+    /// math as ui/src/covers.ts / src/share.ts blobDensity (analytic binary
+    /// coverage + 3× box blur), so the no-emoji halftone lattice matches web
+    /// and server dot-for-dot. (The canvas lab's straight-alpha read-back
+    /// cancels alpha, so each plate is its own coverage times a weight.)
     private static func blobDensity(_ rng: inout Mulberry32) -> [[Float]] {
         let w = htw, count = w * w
         let cx = Double(w) * (0.44 + rng.next() * 0.12)
         let cy = Double(w) * (0.44 + rng.next() * 0.12)
         let rad = Double(w) * (0.30 + rng.next() * 0.07)
         let h0 = rng.next() * tau, h1 = rng.next() * tau, h2 = rng.next() * tau
-        let sigma = Double(w) * 0.03 / 2
         // (dx, dy, scale) per plate — R, G, B in the JS.
         let plates: [(Double, Double, Double)] = [
             (-rad * 0.045, -rad * 0.03, 1.0),
@@ -761,9 +761,20 @@ enum CoverArt {
             (rad * 0.14, rad * 0.13, 0.62),
         ]
         var dens = [[Float]](repeating: [Float](repeating: 0, count: count), count: 3)
-        for (p, (dx, dy, k)) in plates.enumerated() {
-            var cov = rasterBlob(w: w, cx: cx + dx, cy: cy + dy, rad: rad * k, h: (h0, h1, h2))
-            cov = gaussBlur(cov, w: w, sigma: sigma)
+        for (p, (pdx, pdy, k)) in plates.enumerated() {
+            var cov = [Float](repeating: 0, count: count)
+            for y in 0..<w {
+                for x in 0..<w {
+                    let px = Double(x) + 0.5 - cx - pdx
+                    let py = Double(y) + 0.5 - cy - pdy
+                    let th = atan2(py, px)
+                    let rr = rad * k * (1 + 0.24 * sin(3 * th + h0) + 0.13 * sin(5 * th + h1) + 0.08 * sin(7 * th + h2))
+                    if px * px + py * py <= rr * rr { cov[y * w + x] = 1 }
+                }
+            }
+            boxBlur(&cov)
+            boxBlur(&cov)
+            boxBlur(&cov)
             for i in 0..<count {
                 let gx = Double(i % w) / Double(w)
                 let gy = Double(i / w) / Double(w)
@@ -779,32 +790,38 @@ enum CoverArt {
         return dens
     }
 
-    /// Rasterize the 120-segment harmonic blob into an alpha coverage buffer.
-    private static func rasterBlob(w: Int, cx: Double, cy: Double, rad: Double, h: (Double, Double, Double)) -> [Float] {
-        var bytes = [UInt8](repeating: 0, count: w * w)
-        bytes.withUnsafeMutableBytes { buf in
-            // 8-bit grayscale, white shape on the zeroed (black) buffer.
-            guard let c = CGContext(
-                data: buf.baseAddress, width: w, height: w, bitsPerComponent: 8,
-                bytesPerRow: w, space: CGColorSpaceCreateDeviceGray(),
-                bitmapInfo: CGImageAlphaInfo.none.rawValue
-            ) else { return }
-            // Flip so memory row 0 = top, matching canvas/ImageData orientation.
-            c.translateBy(x: 0, y: CGFloat(w))
-            c.scaleBy(x: 1, y: -1)
-            let path = CGMutablePath()
-            for i in 0...120 {
-                let th = Double(i) / 120 * tau
-                let rr = rad * (1 + 0.24 * sin(3 * th + h.0) + 0.13 * sin(5 * th + h.1) + 0.08 * sin(7 * th + h.2))
-                let pt = CGPoint(x: cx + cos(th) * rr, y: cy + sin(th) * rr)
-                if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+    /// Separable box blur (radius 2), run 3× — the JS twins' boxBlur, verbatim.
+    private static func boxBlur(_ buf: inout [Float]) {
+        let r = 2, w = htw
+        var tmp = [Float](repeating: 0, count: buf.count)
+        for y in 0..<w {
+            for x in 0..<w {
+                var sum = 0.0
+                var n = 0.0
+                for k in -r...r {
+                    let xx = x + k
+                    if xx >= 0 && xx < w {
+                        sum += Double(buf[y * w + xx])
+                        n += 1
+                    }
+                }
+                tmp[y * w + x] = Float(sum / n)
             }
-            path.closeSubpath()
-            c.addPath(path)
-            c.setFillColor(CGColor(gray: 1, alpha: 1))
-            c.fillPath()
         }
-        return bytes.map { Float($0) / 255 }
+        for y in 0..<w {
+            for x in 0..<w {
+                var sum = 0.0
+                var n = 0.0
+                for k in -r...r {
+                    let yy = y + k
+                    if yy >= 0 && yy < w {
+                        sum += Double(tmp[yy * w + x])
+                        n += 1
+                    }
+                }
+                buf[y * w + x] = Float(sum / n)
+            }
+        }
     }
 
     /// Separable Gaussian, zero-padded at the edges (canvas blur treats

@@ -324,13 +324,15 @@ function blobDensity(key: string): Float32Array[] {
   })
   const dens = [new Float32Array(HTW * HTW), new Float32Array(HTW * HTW), new Float32Array(HTW * HTW)]
   for (let i = 0; i < HTW * HTW; i++) {
-    const al = Math.min(1, cov[0][i] + cov[1][i] + cov[2][i])
+    // The lab reads back un-premultiplied pixels, so its al·(cov/al) cancels:
+    // each plate is just its own coverage times the gradient weight (this is
+    // also what iOS computes — see Cover.swift blobDensity).
     const gx = (i % HTW) / HTW
     const gy = ((i / HTW) | 0) / HTW
     // Plates weighted in opposite directions — a two-ink gradient, not mud.
-    dens[0][i] = al * Math.min(1, cov[0][i]) * (0.3 + 0.8 * (1 - gx))
-    dens[1][i] = al * Math.min(1, cov[1][i]) * (0.3 + 0.8 * gx)
-    dens[2][i] = al * Math.min(1, cov[2][i]) * (0.18 + 0.55 * gy)
+    dens[0][i] = cov[0][i] * (0.3 + 0.8 * (1 - gx))
+    dens[1][i] = cov[1][i] * (0.3 + 0.8 * gx)
+    dens[2][i] = cov[2][i] * (0.18 + 0.55 * gy)
   }
   return dens
 }
