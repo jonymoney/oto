@@ -1,4 +1,4 @@
-import { audioRepo, savedRepo, followRepo, prefsRepo } from './db.js'
+import { audioRepo, savedRepo, followRepo, prefsRepo, positionsRepo } from './db.js'
 import type { AudioRecord } from './types.js'
 
 // Content-based recommendations v1 for the Explore "For You" shelf.
@@ -46,7 +46,9 @@ async function compute(userId: string): Promise<RecCandidate[]> {
     }
   }
   for (const r of saved) addTags(r.tags, 3)
-  for (const r of owned) addTags(r.tags, r.playedAt ? 2 : 1)
+  // "Played" = has a row in the per-user positions table.
+  const played = await positionsRepo.forUser(userId, owned.map((r) => r.id))
+  for (const r of owned) addTags(r.tags, played.has(r.id) ? 2 : 1)
   let totalWeight = 0
   for (const w of bag.values()) totalWeight += w
 

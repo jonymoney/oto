@@ -166,6 +166,25 @@ export async function initDb(): Promise<void> {
       primary key (user_id, audio_id)
     )
   `)
+  // Per-viewer playback positions: any user's spot on ANY audio (own or
+  // foreign). audios.position_sec/played_at are legacy owner-only columns —
+  // ponytail: left in place, written nowhere and read nowhere; drop whenever.
+  await pool.query(`
+    create table if not exists positions (
+      user_id      uuid not null,
+      audio_id     uuid not null references audios(id) on delete cascade,
+      position_sec double precision not null,
+      played_at    timestamptz not null default now(),
+      primary key (user_id, audio_id)
+    )
+  `)
+  // One-time seed from the legacy owner columns (idempotent; never overwrites).
+  await pool.query(`
+    insert into positions (user_id, audio_id, position_sec, played_at)
+    select user_id, id, position_sec, coalesce(played_at, now())
+      from audios where position_sec is not null
+    on conflict do nothing
+  `)
   await pool.query(`
     create table if not exists collections (
       id         uuid primary key default gen_random_uuid(),
@@ -437,10 +456,17 @@ export const audioRepo = {
     return rows[0] ? mapRow(rows[0]) : null
   },
 
-  /** Continue Listening: stores the playback position and stamps played_at. False = no such row. */
+  /**
+   * Continue Listening: upserts the VIEWER's position on any existing audio
+   * (own or foreign) and stamps played_at. The insert..select guards existence
+   * in the same statement. False = no such audio.
+   */
   async setPosition(userId: string, audioId: string, positionSec: number): Promise<boolean> {
     const { rowCount } = await pool.query(
-      'update audios set position_sec = $3, played_at = now() where user_id = $1 and id = $2',
+      `insert into positions (user_id, audio_id, position_sec)
+       select $1, id, $3 from audios where id = $2
+       on conflict (user_id, audio_id)
+       do update set position_sec = excluded.position_sec, played_at = now()`,
       [userId, audioId, positionSec],
     )
     return (rowCount ?? 0) > 0
@@ -661,6 +687,28 @@ export const audioRepo = {
       [rec.id],
     )
     return rows[0] ? mapRow(rows[0]) : rec
+  },
+}
+
+export interface PlaybackPosition {
+  positionSec: number
+  playedAt: string
+}
+
+export const positionsRepo = {
+  /** The viewer's positions for a set of audios in one query: audioId -> position. */
+  async forUser(userId: string, audioIds: string[]): Promise<Map<string, PlaybackPosition>> {
+    if (audioIds.length === 0) return new Map()
+    const { rows } = await pool.query<{ audio_id: string; position_sec: number; played_at: Date }>(
+      'select audio_id, position_sec, played_at from positions where user_id = $1 and audio_id = any($2)',
+      [userId, audioIds],
+    )
+    return new Map(
+      rows.map((r) => [
+        r.audio_id,
+        { positionSec: Number(r.position_sec), playedAt: r.played_at.toISOString() },
+      ]),
+    )
   },
 }
 
@@ -1227,6 +1275,9 @@ export async function deleteUserData(userId: string, email?: string): Promise<st
     await client.query('delete from usage_counters where user_id = $1', [userId])
     await client.query('delete from follows where follower_id = $1 or followee_id = $1', [userId])
     await client.query('delete from saved_audios where user_id = $1', [userId])
+    // Own audios' position rows cascaded with the audios delete above; this
+    // clears the user's positions on OTHER people's audios.
+    await client.query('delete from positions where user_id = $1', [userId])
     // collection_items cascade; items other users saved from these audios cascade too.
     await client.query('delete from collections where user_id = $1', [userId])
     await client.query('commit')

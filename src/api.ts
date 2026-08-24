@@ -9,9 +9,11 @@ import {
   savedRepo,
   collectionRepo,
   connectionRepo,
+  positionsRepo,
   allowedVisibilities,
   VISIBILITIES,
 } from './db.js'
+import type { PlaybackPosition } from './db.js'
 import { VOICES, FISH_VOICES, providerForVoice } from './tts.js'
 import { presignAudioUrl, presignAvatarUrl, putAvatar, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
@@ -28,14 +30,12 @@ import type { AudioRecord, CoverStyle, Visibility } from './types.js'
 // Everything here reuses the existing data + storage layers — no new auth,
 // no new persistence.
 
-// Positions are personal. position_sec lives on the audios row (the OWNER's
-// spot), so it ships only when the viewer IS the owner — a foreign audio goes
-// out with none, never another user's position. Viewers' own positions on
-// foreign audios live client-side (ResumeStore).
-// ponytail: a (user_id, audio_id) positions table is the upgrade path if
-// cross-device resume on foreign audios ever matters.
-function listItem(rec: AudioRecord, viewerId?: string) {
-  const own = viewerId !== undefined && rec.userId === viewerId
+// Positions are personal: each viewer's spot on each audio (own or foreign)
+// lives in the (user_id, audio_id) positions table. Payloads always ship the
+// VIEWER's position — routes batch-fetch one positions map per response
+// (positionsFor) and thread it here; no map = no positions (anonymous browse).
+function listItem(rec: AudioRecord, positions?: Map<string, PlaybackPosition>) {
+  const pos = positions?.get(rec.id)
   return {
     id: rec.id,
     title: rec.title,
@@ -50,11 +50,15 @@ function listItem(rec: AudioRecord, viewerId?: string) {
     charCount: rec.charCount,
     createdAt: rec.createdAt,
     status: rec.status,
-    positionSec: own ? rec.positionSec : null,
-    playedAt: own ? rec.playedAt : null,
+    positionSec: pos?.positionSec ?? null,
+    playedAt: pos?.playedAt ?? null,
     visibility: rec.visibility,
   }
 }
+
+/** The viewer's positions for one response's records, in a single query. */
+const positionsFor = (viewerId: string, recs: ReadonlyArray<{ id: string }>) =>
+  positionsRepo.forUser(viewerId, [...new Set(recs.map((r) => r.id))])
 
 const avatarUrl = (image: string | null) => (image ? presignAvatarUrl(image) : Promise.resolve(null))
 
@@ -72,7 +76,7 @@ const isUniqueViolation = (err: unknown) =>
 // Presign only when playable; a processing/error row has no object to serve yet.
 async function detail(rec: AudioRecord, viewerId?: string) {
   return {
-    ...listItem(rec, viewerId),
+    ...listItem(rec, viewerId ? await positionsFor(viewerId, [rec]) : undefined),
     coverStyle: coerceCoverStyle((await userRepo.get(rec.userId))?.coverStyle),
     shareUrl: shareUrlFor(await usernameFor(rec.userId), await ensureSlug(rec)),
     audioUrl: rec.status === 'ready' ? await presignAudioUrl(rec.objectKey) : null,
@@ -103,13 +107,16 @@ export function apiRouter(): Router {
         if (!names.has(uid)) names.set(uid, await usernameFor(uid))
         return names.get(uid)!
       }
-      // Creator cover styles in one grouped query (no per-item lookup).
-      const styles = await userRepo.coverStyles([...new Set(items.map((r) => r.userId))])
+      // Creator cover styles + viewer positions, one grouped query each.
+      const [styles, positions] = await Promise.all([
+        userRepo.coverStyles([...new Set(items.map((r) => r.userId))]),
+        positionsFor(userId, items),
+      ])
       const out = []
       for (const rec of items) {
         const ownerName = await nameOf(rec.userId)
         out.push({
-          ...listItem(rec, userId),
+          ...listItem(rec, positions),
           coverStyle: styles.get(rec.userId) ?? 'classic',
           owner: rec.userId === userId ? null : ownerName,
           shareUrl: shareUrlFor(ownerName, await ensureSlug(rec)),
@@ -159,14 +166,11 @@ export function apiRouter(): Router {
       if (typeof positionSec !== 'number' || !Number.isFinite(positionSec) || positionSec < 0) {
         return res.status(400).json({ error: 'positionSec must be a finite number >= 0' })
       }
+      // Any authed user may store a position on any existing audio — playing is
+      // already capability-based (the unguessable id, see byIdForViewer), so
+      // existence is the sufficient guard.
       const found = await audioRepo.setPosition(userId, req.params.id, positionSec)
-      if (!found) {
-        // Foreign audio (saved or just browsed): positions are per-user and
-        // live client-side for non-owners — accept and drop, never error on
-        // playback reporting.
-        if (await audioRepo.getByIdPublic(req.params.id)) return res.status(204).end()
-        return res.status(404).json({ error: 'Not found' })
-      }
+      if (!found) return res.status(404).json({ error: 'Not found' })
       res.status(204).end()
     }),
   )
@@ -495,11 +499,12 @@ export function apiRouter(): Router {
               .relation(userId, target.id)
               .then((r) => allowedVisibilities(r.viewerFollowsOwner, r.ownerFollowsViewer))
       const recs = await audioRepo.listVisibleByUser(target.id, vis, 50, 0)
+      const positions = await positionsFor(userId, recs)
       const targetStyle = coerceCoverStyle(target.coverStyle)
       const items = []
       for (const rec of recs) {
         items.push({
-          ...listItem(rec, userId),
+          ...listItem(rec, positions),
           coverStyle: targetStyle,
           owner: target.username,
           shareUrl: shareUrlFor(target.username!, await ensureSlug(rec)),
@@ -533,11 +538,12 @@ export function apiRouter(): Router {
       for (const rec of [...follows, ...forYou, ...recent]) {
         if (!slugs.has(rec.id)) slugs.set(rec.id, await ensureSlug(rec))
       }
+      const positions = await positionsFor(userId, [...follows, ...forYou, ...recent])
       // ownerCoverStyle is optional only because RecCandidate (recs.ts) doesn't
       // declare it — at runtime every shelf's rows come from the joined queries
       // that select it.
       const entry = (rec: AudioRecord & { ownerUsername: string; ownerCoverStyle?: CoverStyle }) => ({
-        ...listItem(rec, userId),
+        ...listItem(rec, positions),
         coverStyle: rec.ownerCoverStyle ?? 'classic',
         owner: rec.ownerUsername,
         shareUrl: shareUrlFor(rec.ownerUsername, slugs.get(rec.id)!),
@@ -557,11 +563,13 @@ export function apiRouter(): Router {
   router.get(
     '/tags/:tag/audios',
     wrap(async (req, res) => {
+      const userId = userIdFrom({ authInfo: req.auth })
       const recs = await audioRepo.listByTag(req.params.tag, 50)
+      const positions = await positionsFor(userId, recs)
       const items = []
       for (const rec of recs) {
         items.push({
-          ...listItem(rec), // anonymous browse: tag lists never carry positions
+          ...listItem(rec, positions),
           coverStyle: rec.ownerCoverStyle,
           owner: rec.ownerUsername,
           shareUrl: shareUrlFor(rec.ownerUsername, await ensureSlug(rec)),
@@ -650,11 +658,14 @@ export function apiRouter(): Router {
         if (!names.has(uid)) names.set(uid, await usernameFor(uid))
         return names.get(uid)!
       }
-      const styles = await userRepo.coverStyles([...new Set(col.items.map((r) => r.userId))])
+      const [styles, positions] = await Promise.all([
+        userRepo.coverStyles([...new Set(col.items.map((r) => r.userId))]),
+        positionsFor(userId, col.items),
+      ])
       const items = []
       for (const rec of col.items) {
         items.push({
-          ...listItem(rec, userId),
+          ...listItem(rec, positions),
           coverStyle: styles.get(rec.userId) ?? 'classic',
           owner: rec.userId === userId ? null : await nameOf(rec.userId),
         })
