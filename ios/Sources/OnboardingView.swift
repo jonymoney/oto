@@ -64,7 +64,6 @@ struct OnboardingView: View {
     @State private var copied: String?
 
     private let mcpURL = "https://oto.audio/mcp"
-    private let claudeCodeCmd = "claude mcp add --transport http oto https://oto.audio/mcp"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -418,22 +417,10 @@ struct OnboardingView: View {
                         .foregroundStyle(Theme.ink2)
                 }
 
-                instructionCard("terminal", "Claude Code") {
-                    Button {
-                        copy(claudeCodeCmd)
-                    } label: {
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(claudeCodeCmd)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(Theme.ink2)
-                                .multilineTextAlignment(.leading)
-                            Image(systemName: copied == claudeCodeCmd ? "checkmark" : "doc.on.doc")
-                                .font(.caption)
-                                .foregroundStyle(copied == claudeCodeCmd ? Theme.accent : Theme.ink3)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy Claude Code command")
+                instructionCard("sparkles", "ChatGPT") {
+                    Text("Settings → Connectors → enable Developer mode → Create → paste the URL")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
                 }
 
                 Link("Full guide", destination: URL(string: "https://oto.audio/connect")!)
