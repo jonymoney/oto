@@ -19,6 +19,14 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1" # iPhone
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_TEAM: GF73A5V3YY
+    # Universal links: oto.audio serves /.well-known/apple-app-site-association
+    # for this team+bundle; share/profile links open the app when installed.
+    entitlements:
+      path: Sources/oto.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - applinks:oto.audio
     info:
       path: Sources/Info.plist
       properties:

@@ -19,6 +19,10 @@ const EnvSchema = z.object({
   // Optional Fish voice/reference model id; falls back to the model default.
   FISH_REFERENCE_ID: z.string().optional(),
 
+  // Numeric App Store ID — set after App Store launch to light up the Smart
+  // App Banner on share/profile pages. Unset = no banner.
+  APP_STORE_ID: z.string().optional(),
+
   // ── Better Auth (self-hosted authorization server) ──────────────────────
   // Public origin of this service — Better Auth's baseURL and JWT issuer.
   BETTER_AUTH_URL: z.string().url(),

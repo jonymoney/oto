@@ -77,6 +77,40 @@ struct RootView: View {
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if !signedIn { player.stop() } // sign-out kills playback + mini-player
         }
+        // Universal links (oto.audio/username[/slug]) arrive as either a URL or
+        // a browsing-web activity depending on entry point — same handler.
+        .onOpenURL { openLink($0) }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { openLink(url) }
+        }
+    }
+
+    /// Route an oto.audio universal link: /username → profile in Explore,
+    /// /username/slug → that audio's full player. Anything else is ignored.
+    private func openLink(_ url: URL) {
+        // ponytail: pre-sign-in links are dropped, not queued — add a pending
+        // slot on AuthManager if link-then-login matters.
+        guard url.scheme == "https", auth.isSignedIn else { return }
+        let parts = url.path.split(separator: "/").map(String.init)
+        switch parts.count {
+        case 1:
+            player.requestedProfile = parts[0] // RootView's onChange lands on the profile
+        case 2:
+            Task {
+                // The API has no slug lookup; every AudioItem carries its shareUrl,
+                // so match the tapped path against the owner's visible audios.
+                let items = (try? await API.userAudios(username: parts[0])) ?? []
+                if let item = items.first(where: {
+                    $0.shareUrl?.hasSuffix("/\(parts[0])/\(parts[1])") == true
+                }) {
+                    player.requestedItem = item
+                } else {
+                    player.requestedProfile = parts[0] // private/unknown slug → profile
+                }
+            }
+        default:
+            break
+        }
     }
 
     @ViewBuilder private var signedIn: some View {

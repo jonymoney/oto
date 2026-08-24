@@ -445,7 +445,8 @@ const isDarkGround = (style: CoverStyle) => style === 'classic'
 // Existing top-level routes — never assignable as usernames.
 export const RESERVED_USERNAMES = new Set([
   'api', 'mcp', 'a', 'login', 'oauth', 'consent', 'upgrade', 'health', 'auth',
-  'billing', 'icon.png', 'favicon.ico', 'robots.txt', '.well-known', 'well-known',
+  'billing', 'icon.png', 'favicon.ico', 'robots.txt', 'sitemap.xml', '.well-known',
+  'well-known', 'apple-app-site-association', 'img', 'voices',
   'terms', 'privacy', 'connect', 'explore', 'me', 'users', 'collections', 'avatars',
 ])
 
@@ -554,7 +555,7 @@ function sharePage(
     .join(' ')
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} — oto</title>
+<title>${title} — oto</title>${appBannerMeta(shareUrlFor(username, slug))}
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${desc}">
 <meta property="og:image" content="${coverUrl}">
@@ -683,8 +684,44 @@ async function readyAudio(id: string): Promise<AudioRecord | null> {
   return rec && rec.status === 'ready' ? rec : null
 }
 
+// ── Universal links: apple-app-site-association ─────────────────────────────
+// Team GF73A5V3YY / bundle audio.oto.app. Profile + share pages open the iOS
+// app when installed; every reserved top-level path stays in the browser.
+const AASA = {
+  applinks: {
+    details: [
+      {
+        appIDs: ['GF73A5V3YY.audio.oto.app'],
+        components: [
+          { '/': '/', exclude: true },
+          ...[...RESERVED_USERNAMES].flatMap((p) => [
+            { '/': `/${p}`, exclude: true },
+            { '/': `/${p}/*`, exclude: true },
+          ]),
+          { '/': '/*' },
+        ],
+      },
+    ],
+  },
+}
+
+/** Smart App Banner — inert until APP_STORE_ID is set (post App Store launch). */
+function appBannerMeta(pageUrl: string): string {
+  if (!config.APP_STORE_ID) return ''
+  return `\n<meta name="apple-itunes-app" content="app-id=${config.APP_STORE_ID}, app-argument=${pageUrl}">`
+}
+
 export function shareRouter(): Router {
   const router = Router()
+
+  // Apple fetches the .well-known path first, then falls back to the root.
+  // Must be JSON served directly — no redirects.
+  for (const p of ['/.well-known/apple-app-site-association', '/apple-app-site-association']) {
+    router.get(p, (_req, res) => {
+      res.setHeader('Cache-Control', 'public, max-age=3600')
+      res.json(AASA)
+    })
+  }
 
   // Legacy long links: 301 to the canonical short URL (lazily assigns
   // username + slug on first hit). /a/:id/audio and cover keep serving direct.
@@ -763,7 +800,7 @@ function profilePage(
     .join('')
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>@${name} — oto</title>
+<title>@${name} — oto</title>${appBannerMeta(new URL(`/${username}`, config.BETTER_AUTH_URL).href)}
 <meta property="og:title" content="@${name} — oto">
 <meta property="og:type" content="profile">
 <link rel="icon" type="image/png" href="/icon.png">
