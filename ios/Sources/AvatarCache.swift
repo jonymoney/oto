@@ -26,6 +26,15 @@ enum AvatarCache {
         key == ownUsername ? "me" : key
     }
 
+    /// Sign-out wipe: memory + disk + the own-username alias. Without this the
+    /// next account sees the previous account's "me" avatar.
+    static func wipe() {
+        memory.removeAllObjects()
+        refreshed = []
+        ownUsername = nil
+        try? FileManager.default.removeItem(at: dir)
+    }
+
     private static var dir: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("avatars", isDirectory: true)

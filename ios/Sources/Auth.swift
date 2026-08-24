@@ -111,10 +111,15 @@ final class AuthManager {
         phase = .idle
     }
 
-    /// THE place to add future local-data wipes (push token, local DB, image
-    /// cache). Called on both logout and session expiry.
+    /// THE place for local-data wipes. Called on both logout and session
+    /// expiry — the next sign-in may be a different account, so nothing
+    /// per-account survives (avatar, onboarding flag, resume positions,
+    /// downloaded audio). Device-level prefs (haptics) stay.
     private func wipeLocalData() {
-        // ponytail: nothing local to wipe yet — future caches hook in here.
+        AvatarCache.wipe()
+        Onboarding.reset()
+        ResumeStore.wipe()
+        Downloads.shared.removeAll()
     }
 
     private func message(for error: Error) -> String {

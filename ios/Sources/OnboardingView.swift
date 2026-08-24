@@ -5,6 +5,8 @@ import UIKit
 enum Onboarding {
     static var needed: Bool { !UserDefaults.standard.bool(forKey: "onboardingDone") }
     static func markDone() { UserDefaults.standard.set(true, forKey: "onboardingDone") }
+    /// Sign-out wipe: the next account (even a returning one) onboards again.
+    static func reset() { UserDefaults.standard.removeObject(forKey: "onboardingDone") }
 }
 
 /// Four-page first-run flow: pick a voice, pick a cover style, how it works,

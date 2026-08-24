@@ -285,7 +285,7 @@ struct SettingsView: View {
             Button("Sign Out", role: .destructive) { Task { await auth.logout() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Downloads stay on this device. Your audios stay in your account.")
+            Text("Your audios stay in your account. Downloads are removed from this device.")
         }
         .confirmationDialog("Remove all downloads?", isPresented: $confirmingRemoveDownloads, titleVisibility: .visible) {
             Button("Remove all", role: .destructive) { Downloads.shared.removeAll() }

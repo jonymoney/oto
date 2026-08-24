@@ -17,6 +17,9 @@ enum ResumeStore {
         if positionSec <= 0 { d.removeValue(forKey: id) } else { d[id] = positionSec }
         UserDefaults.standard.set(d, forKey: key)
     }
+
+    /// Sign-out wipe — positions belong to the account that listened.
+    static func wipe() { UserDefaults.standard.removeObject(forKey: key) }
 }
 
 @MainActor
