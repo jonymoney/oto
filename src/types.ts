@@ -145,3 +145,20 @@ export type VortexPayload = {
   /** Seed for the vortex animation so each opening looks different. */
   seed: number
 }
+
+/**
+ * structuredContent payload when generation needs a subscription. Deliberately
+ * a SUCCESS result, not an error: the widget renders a subscribe screen and
+ * the model is told to relay it calmly instead of apologizing.
+ */
+export type UpgradePayload = {
+  kind: 'upgrade'
+  reason: 'quota' | 'length' | 'voice'
+  /** Human-readable line shown in the panel ("Generation limit reached…"). */
+  message: string
+  usedSec: number
+  quotaSec: number
+  upgradeUrl: string
+  /** Display price ("$6.99/month") when billing is configured. */
+  price: string | null
+}

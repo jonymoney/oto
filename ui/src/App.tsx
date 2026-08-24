@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
-import type { HistoryItem, HistoryPayload, PlayerPayload, StatusPayload } from '../../src/types'
+import type {
+  HistoryItem,
+  HistoryPayload,
+  PlayerPayload,
+  StatusPayload,
+  UpgradePayload,
+} from '../../src/types'
 import { callTool, parseUiPayload, resultText } from './bridge'
 import type { UiPayload } from './bridge'
 import { useAudioEngine } from './useAudioEngine'
@@ -17,7 +23,7 @@ const POLL_MS = 2_500
 // Transient transport hiccups are tolerated for this many consecutive polls.
 const MAX_POLL_FAILURES = 4
 
-type View = 'boot' | 'player' | 'history' | 'processing' | 'vortex' | 'closed'
+type View = 'boot' | 'player' | 'history' | 'processing' | 'vortex' | 'closed' | 'upgrade'
 type Theme = 'light' | 'dark'
 
 function systemTheme(): Theme {
@@ -42,11 +48,12 @@ export function OtoApp() {
   const [cancelReason, setCancelReason] = useState<string | null>(null)
   const [toolError, setToolError] = useState<string | null>(null)
   const [vortexSeed, setVortexSeed] = useState(0)
+  const [upgrade, setUpgrade] = useState<UpgradePayload | null>(null)
   const [incoming, setIncoming] = useState<UiPayload | null>(null)
 
   const { app, isConnected, error: connectError } = useApp({
     appInfo: { name: 'oto', version: '0.1.0' },
-    capabilities: {},
+    capabilities: { openLinks: {} },
     onAppCreated(created) {
       // Handlers must be registered before the initialize handshake completes.
       created.ontoolresult = result => {
@@ -115,6 +122,9 @@ export function OtoApp() {
       setHistory(incoming)
       setHistoryStatus('idle')
       setView('history')
+    } else if (incoming.kind === 'upgrade') {
+      setUpgrade(incoming)
+      setView('upgrade')
     } else {
       openVortex(incoming.seed)
     }
@@ -381,6 +391,14 @@ export function OtoApp() {
     )
   } else if (view === 'closed') {
     body = <ClosedPill title={processing?.title ?? track?.title ?? 'archive'} onOpen={reopen} />
+  } else if (view === 'upgrade' && upgrade) {
+    body = (
+      <UpgradeView
+        payload={upgrade}
+        onSubscribe={() => void app?.openLink({ url: upgrade.upgradeUrl })}
+        onHistory={openHistory}
+      />
+    )
   } else if (view === 'vortex') {
     body = <VortexView seed={vortexSeed} playing={engine.state.playing} onExit={exitVortex} />
   } else if (view === 'processing' && processing) {
@@ -450,6 +468,41 @@ function BootSkeleton() {
         <div className="oto-sk" style={{ flex: 1, height: 26 }} />
         <div className="oto-sk" style={{ width: 64, height: 12 }} />
       </div>
+    </section>
+  )
+}
+
+/** Out-of-minutes subscribe screen — the tool result that replaces a raw quota error. */
+function UpgradeView({
+  payload,
+  onSubscribe,
+  onHistory,
+}: {
+  payload: UpgradePayload
+  onSubscribe: () => void
+  onHistory: () => void
+}) {
+  const used = Math.min(payload.usedSec / Math.max(payload.quotaSec, 1), 1)
+  return (
+    <section className="oto-panel oto-upgrade">
+      <div className="oto-upgrade-brand">
+        <span className="oto-upgrade-dot" aria-hidden="true" />
+        oto unlimited
+      </div>
+      <h2 className="oto-upgrade-title">Your free minutes are used up</h2>
+      <p className="oto-upgrade-detail">{payload.message}</p>
+      <div className="oto-upgrade-meter" role="presentation">
+        <i style={{ width: `${Math.round(used * 100)}%` }} />
+      </div>
+      <button type="button" className="oto-upgrade-cta" onClick={onSubscribe}>
+        {payload.price ? `Get unlimited — ${payload.price}` : 'Get unlimited'}
+      </button>
+      <p className="oto-upgrade-foot">
+        Unlimited generation, all premium voices. Everything you’ve already made stays playable, free.
+      </p>
+      <button type="button" className="oto-more" onClick={onHistory}>
+        open history
+      </button>
     </section>
   )
 }

@@ -3,13 +3,19 @@ import type {
   HistoryPayload,
   PlayerPayload,
   ProcessingPayload,
+  UpgradePayload,
   VortexPayload,
 } from '../../src/types'
 
 export type ToolResult = Awaited<ReturnType<App['callServerTool']>>
 
 /** Any structuredContent payload oto knows how to render. */
-export type UiPayload = PlayerPayload | HistoryPayload | ProcessingPayload | VortexPayload
+export type UiPayload =
+  | PlayerPayload
+  | HistoryPayload
+  | ProcessingPayload
+  | VortexPayload
+  | UpgradePayload
 
 /** First text block of a tool result — the error message on failed results. */
 export function resultText(result: ToolResult): string {
@@ -44,5 +50,6 @@ export function parseUiPayload(result: ToolResult): UiPayload | null {
   if (sc.kind === 'history') return sc as unknown as HistoryPayload
   if (sc.kind === 'processing') return sc as unknown as ProcessingPayload
   if (sc.kind === 'vortex') return sc as unknown as VortexPayload
+  if (sc.kind === 'upgrade') return sc as unknown as UpgradePayload
   return null
 }

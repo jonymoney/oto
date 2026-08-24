@@ -25,11 +25,13 @@ import { startGenerationJob } from './jobs.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { ensureSlug } from './share.js'
 import { coerceCoverStyle } from './types.js'
+import { priceDisplay } from './billing.js'
 import type {
   CoverStyle,
   AudioRecord,
   HistoryItem,
   HistoryPayload,
+  UpgradePayload,
   PlayerPayload,
   ProcessingPayload,
   StatusPayload,
@@ -238,6 +240,36 @@ function errorResult(err: unknown) {
   return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true }
 }
 
+/**
+ * Out of free minutes (or a premium voice without a subscription) is NOT an
+ * error: the tool succeeds and the widget renders a subscribe screen, and the
+ * model is told to relay it calmly. An isError here would make hosts show a
+ * raw failure banner instead of the paywall.
+ */
+async function upgradeResult(reason: UpgradePayload['reason'], message: string, usedSec: number) {
+  const payload: UpgradePayload = {
+    kind: 'upgrade',
+    reason,
+    message,
+    usedSec,
+    quotaSec,
+    upgradeUrl: config.UPGRADE_URL,
+    price: config.billingEnabled ? await priceDisplay().catch(() => null) : null,
+  }
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text:
+          `${message} A subscribe screen for oto unlimited is now displayed to the user — expected behavior, not an error. ` +
+          `Briefly let them know their free minutes are used up and they can subscribe right in the panel (or at ${config.UPGRADE_URL}); ` +
+          'everything already in their history stays playable for free. Offer to generate this audio once they subscribe.',
+      },
+    ],
+    structuredContent: payload,
+  }
+}
+
 async function getHistory(userId: string, limit?: number, offset?: number) {
   const { items, total } = await audioRepo.listByUser(userId, limit, offset)
   // History lists the caller's own audios, so one style covers every item.
@@ -299,7 +331,9 @@ export function buildServer(): McpServer {
         `Texts over ${SYNC_THRESHOLD} characters generate in the background — the player shows progress and updates itself when ready. ` +
         `Voices: ${[...VOICES, ...(config.fishEnabled ? Object.keys(FISH_VOICES) : [])].join(', ')}.` +
         (quotaSec > 0
-          ? ` Each user can generate up to ${config.QUOTA_MINUTES} minutes of new audio; stored audios stay playable for free.`
+          ? ` Each user can generate up to ${config.QUOTA_MINUTES} minutes of new audio; stored audios stay playable for free. ` +
+            'NEVER refuse or warn about the quota beforehand — always call this tool: if the user is out of minutes ' +
+            'it still succeeds and shows them a subscribe screen inline.'
           : ''),
       inputSchema: {
         // Long texts generate in the background, so the cap bounds per-request
@@ -374,11 +408,10 @@ export function buildServer(): McpServer {
           !(quotaSec === 0 || (await isQuotaExempt(userId, email)))
         ) {
           if (voice) {
-            return errorResult(
-              new Error(
-                `The ${resolvedVoice} voice is part of oto unlimited. ` +
-                  `Upgrade at ${config.UPGRADE_URL} — or pick a free voice.`,
-              ),
+            return upgradeResult(
+              'voice',
+              `The ${resolvedVoice} voice is part of oto unlimited.`,
+              await usageRepo.generatedSec(userId, email),
             )
           }
           // ponytail: pref-set-before-gate fallback — a fish voice saved as a
@@ -427,12 +460,10 @@ export function buildServer(): McpServer {
         if (quotaSec > 0 && !exempt) {
           const usedSec = await usageRepo.generatedSec(userId, email)
           if (usedSec >= quotaSec) {
-            return errorResult(
-              new Error(
-                `Generation limit reached (${fmtMinutes(usedSec)} of ${config.QUOTA_MINUTES} min). ` +
-                  'New audio cannot be generated, but everything in your history stays playable. ' +
-                  `Upgrade for unlimited generation: ${config.UPGRADE_URL}`,
-              ),
+            return upgradeResult(
+              'quota',
+              `The free generation quota is used up (${fmtMinutes(usedSec)} of ${config.QUOTA_MINUTES} min).`,
+              usedSec,
             )
           }
           // Pre-flight on the length estimate (with 15% headroom for its
@@ -440,11 +471,11 @@ export function buildServer(): McpServer {
           // far past the quota.
           const estSec = estimateSec(cleanText.length)
           if (usedSec + estSec > quotaSec * 1.15) {
-            return errorResult(
-              new Error(
-                `This text is ~${fmtMinutes(estSec)} of audio, but only ${fmtMinutes(Math.max(quotaSec - usedSec, 0))} ` +
-                  `of the ${config.QUOTA_MINUTES} min generation quota remains. Try a shorter text.`,
-              ),
+            return upgradeResult(
+              'length',
+              `This text is ~${fmtMinutes(estSec)} of audio, but only ${fmtMinutes(Math.max(quotaSec - usedSec, 0))} ` +
+                `of the ${config.QUOTA_MINUTES} free minutes remain.`,
+              usedSec,
             )
           }
         }
