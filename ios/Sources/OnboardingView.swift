@@ -44,6 +44,8 @@ struct OnboardingView: View {
     @State private var page = 0
     @State private var coverStyle = "classic"
     @State private var prefs: API.Prefs?
+    @State private var usage: API.Usage?
+    @State private var showingPaywall = false
     @State private var prefsFailed = false
     @State private var centeredVoice: API.Voice?
     @State private var preview = VoicePreviewPlayer()
@@ -78,6 +80,11 @@ struct OnboardingView: View {
         }
         .tint(Theme.accent)
         .task { await loadPrefs() }
+        // PaywallView dismisses itself once the purchase lands; re-reading
+        // usage here drops the locks so the new subscriber can pick the voice.
+        .sheet(isPresented: $showingPaywall, onDismiss: {
+            Task { usage = try? await API.usage() }
+        }) { PaywallView() }
         .onChange(of: centeredVoice) { old, voice in
             if old != nil { Haptics.selection() }
             autoplayTask?.cancel()
@@ -106,13 +113,36 @@ struct OnboardingView: View {
 
     private func loadPrefs() async {
         guard prefs == nil else { return }
+        usage = try? await API.usage() // before prefs — shownVoices depends on it
         do {
             let p = try await API.prefs()
             prefs = p
-            centeredVoice = p.voices.first { $0.name == p.voice } ?? p.voices.first
+            let shown = shownVoices(p.voices)
+            centeredVoice = shown.first { $0.name == p.voice } ?? shown.first
         } catch {
             prefsFailed = true
         }
+    }
+
+    // Same gate as SettingsView: fish voices are locked whenever a quota is
+    // active. Fail closed while usage is loading.
+    private var fishLocked: Bool {
+        guard let u = usage else { return true }
+        return !u.unlimited && u.quotaSec > 0
+    }
+    private var canUpgrade: Bool { usage?.showUpgrade == true }
+    private func isLocked(_ voice: API.Voice) -> Bool {
+        voice.provider == "fish" && fishLocked
+    }
+
+    /// The pitch lineup: 2 OpenAI voices, then every fish voice. Falls back to
+    /// all OpenAI voices when fish isn't available — or isn't purchasable here
+    /// (upgrade UI hidden), where locked voices would be a dead end.
+    private func shownVoices(_ all: [API.Voice]) -> [API.Voice] {
+        let openai = all.filter { $0.provider == "openai" }
+        let fish = all.filter { $0.provider == "fish" }
+        if fish.isEmpty || (fishLocked && !canUpgrade) { return openai }
+        return Array(openai.prefix(2)) + fish
     }
 
     private func play(_ voice: API.Voice) async {
@@ -132,7 +162,7 @@ struct OnboardingView: View {
             Spacer(minLength: 0)
 
             if let prefs {
-                voiceCarousel(prefs.voices)
+                voiceCarousel(shownVoices(prefs.voices))
             } else if prefsFailed {
                 VStack(spacing: 16) {
                     VoiceOrbView(state: .idle, level: 0, palette: OrbPalettes.palette(for: "alloy"))
@@ -148,6 +178,13 @@ struct OnboardingView: View {
             Spacer(minLength: 0)
 
             Button {
+                // Centered on a locked voice: the CTA is the subscribe modal,
+                // not a selection — the voice stays locked until unlimited.
+                if let voice = centeredVoice, isLocked(voice) {
+                    Haptics.impact()
+                    showingPaywall = true
+                    return
+                }
                 Haptics.success()
                 let voice = centeredVoice
                 autoplayTask?.cancel()
@@ -158,7 +195,7 @@ struct OnboardingView: View {
                 }
                 withAnimation(.spring(duration: 0.35)) { page = 1 }
             } label: {
-                Text(centeredVoice.map { "Choose \($0.name.capitalized)" } ?? "Continue")
+                Text(chooseLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
@@ -186,17 +223,45 @@ struct OnboardingView: View {
         .scrollIndicators(.hidden)
     }
 
+    private var chooseLabel: String {
+        guard let voice = centeredVoice else { return "Continue" }
+        return isLocked(voice)
+            ? "Unlock \(voice.name.capitalized) with oto unlimited"
+            : "Choose \(voice.name.capitalized)"
+    }
+
     private func voiceSlide(_ voice: API.Voice) -> some View {
         VStack(spacing: 16) {
             Button {
+                // Locked orb → subscribe modal (previews still autoplay on
+                // centering, so the voice has already introduced itself).
+                if isLocked(voice) {
+                    Haptics.impact()
+                    showingPaywall = true
+                    return
+                }
                 Haptics.tap()
                 Task { await play(voice) }
             } label: {
                 slideOrb(voice)
                     .frame(width: 220, height: 220)
+                    .overlay(alignment: .topTrailing) {
+                        if isLocked(voice) {
+                            Image(systemName: "lock.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.ink2)
+                                .padding(8)
+                                .background(Theme.surface, in: Circle())
+                                .padding(10)
+                        }
+                    }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Play \(voice.name.capitalized) preview")
+            .accessibilityLabel(
+                isLocked(voice)
+                    ? "\(voice.name.capitalized) — unlock with oto unlimited"
+                    : "Play \(voice.name.capitalized) preview"
+            )
 
             VStack(spacing: 2) {
                 Text(voice.name.capitalized)
