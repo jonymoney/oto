@@ -13,7 +13,8 @@
     "build:server": "tsc -p tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p ui/tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p ui/tsconfig.json",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.821.0",

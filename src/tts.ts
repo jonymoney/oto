@@ -123,7 +123,7 @@ const openai = new OpenAI({ timeout: TTS_TIMEOUT_MS, maxRetries: 2 })
 const MAX_CONCURRENT_CHUNKS = 4
 
 /** Promise.all with a concurrency cap; results keep input order. */
-async function mapWithLimit<T, R>(
+export async function mapWithLimit<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>,
