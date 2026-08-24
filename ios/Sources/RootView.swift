@@ -114,14 +114,20 @@ struct RootView: View {
     }
 
     @ViewBuilder private var signedIn: some View {
-        if #available(iOS 26.0, *) {
-            // System slots the mini-player above the tab bar (Music-style capsule).
-            TabView(selection: $tab) { tabs(docked: false) }
-                .modifier(MiniPlayerAccessory(shows: player.showsMiniPlayer))
-                .tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            TabView(selection: $tab) { tabs(docked: true) }
+        Group {
+            if #available(iOS 26.0, *) {
+                // System slots the mini-player above the tab bar (Music-style capsule).
+                TabView(selection: $tab) { tabs(docked: false) }
+                    .modifier(MiniPlayerAccessory(shows: player.showsMiniPlayer))
+                    .tabBarMinimizeBehavior(.onScrollDown)
+            } else {
+                TabView(selection: $tab) { tabs(docked: true) }
+            }
         }
+        // Ground behind every tab — without it the window's black shows through
+        // wherever a tab's content doesn't paint edge to edge (e.g. the empty
+        // library on iOS 26).
+        .background(Theme.bg.ignoresSafeArea())
     }
 
     @ViewBuilder private func tabs(docked: Bool) -> some View {

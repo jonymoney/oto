@@ -95,7 +95,8 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             content
-                .background(Theme.bg)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.bg.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
