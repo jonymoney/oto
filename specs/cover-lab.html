@@ -188,7 +188,7 @@
   <p class="fam-note">The chosen direction, rollable. <strong>Generate</strong> (or <kbd>space</kbd> / <kbd>G</kbd>) rolls a fresh set; click any cover to re-roll just that one; shift-click or hit &#9734; to pin it into <strong>Keepers</strong>, which survive Generate; &#10530; opens it large beside real-size mock-ups &mdash; a 56&nbsp;px library row, a 110&nbsp;px grid cell and the 260&nbsp;px player artwork, which is the honest test of whether type-led covers survive at thumbnail size. Tiles are drawn static at <code>t&nbsp;=&nbsp;0</code> (how covers are seen nearly everywhere in the app, and twelve animated per-pixel grounds would melt the page) &mdash; hover one to see it move. Every tile carries its seed: tell me the four characters and the exact cover comes back.</p>
   <div class="gen-bar">
     <label>ground
-      <select id="gGround"><option value="">any</option><option>fluid</option><option>halftone</option><option>ink</option></select>
+      <select id="gGround"><option value="">any</option><option>fluid</option><option>halftone</option><option>ink</option><option>tessellation</option></select>
     </label>
     <label>mood
       <select id="gMood"><option value="">from title</option>
@@ -1284,6 +1284,235 @@ function inkHex(x, s, R, pal, t, force){
   x.restore();
 }
 
+/* -- C2. Tessellation -----------------------------------------------
+   Escher-style interlocking tilings. A base tile's edges are deformed
+   by seeded curves and the SAME curve is replayed on the mating edge
+   (translated, or rotated 90 deg for the pinwheel), so tiles interlock
+   with zero gaps or overlaps by construction - verified numerically:
+   every interior boundary segment is shared by exactly two tiles.
+   Pure path geometry: moveTo/lineTo/closePath + flat fills + one
+   stroke. No filters, no gradients, no blend modes. Ports 1:1 to
+   CoreGraphics and to static SVG <path> elements.
+
+   Each sub-family has a deliberately different CHARACTER so twelve
+   rolls never look alike: tessPinwheel = bold interlocking figures
+   (2-4 tiles across, deep deformation), tessWeave = fine fabric
+   (8-12 across, subtle deformation), tessReptile = mid-scale hex
+   creatures (3-6 across). All three spin the whole lattice anywhere
+   in 0-90 deg and pick one of three colouring modes per seed.
+
+   PULL-ORDER SPEC (the porting contract - rng pulls in this exact order):
+   generator dispatch (drawCover): pull 0 = sub-family, floor(R()*3) over
+   TESS_FAMS = [tessWeave, tessReptile, tessPinwheel]. Then inside the
+   chosen sub-family, all on the SAME rng stream:
+     1        stock          floor(R()*8) into TESS_STOCK
+     2        mode           floor(R()*3)   0 checkerboard/3-colouring,
+                                            1 row stripes, 2 field + sparse accent
+     3        n              tessWeave 8+floor(R()*5) (8..12 cells across)
+                             tessReptile 3+floor(R()*4) (3..6 hex columns)
+                             tessPinwheel 2+floor(R()*3) (2..4 cells across)
+     4        rot0           R()*PI/2                    whole-lattice rotation, rad
+     5        ampF           tessWeave .07+R()*.08, tessReptile .14+R()*.12,
+                             tessPinwheel .16+R()*.10   edge deformation, frac of cell
+     6..8     profile #1     c1=(R()*2-1)*.6, c2=R()*2-1, c3=(R()*2-1)*.4
+     9..11    profile #2     same three pulls
+     12..14   profile #3     tessReptile ONLY (three profiles); others skip
+     next     ph             R()*TAU                     breathing phase
+     last     sd             (R()*2147483647)|0          per-tile shade hash seed
+   Per-tile loops pull NO rng: tile colour comes from lattice indices +
+   mode (tessColor below), shade jitter = vhash(i+37, j+91, sd) (integer
+   hash, defined above) - so iteration order and tile count are free to
+   vary with rotation/size without breaking determinism. Off-canvas tiles
+   are culled by centre distance (pure function of indices, no rng).
+
+   An edge profile is g(u) = (c1*sin(pi*u) + c2*sin(2pi*u) + c3*sin(3pi*u))
+   normalized so max|g| = 1 over u in (0,1) (sampled at 31 points, i/32),
+   then scaled by ampF*cell. g(0) = g(1) = 0, so corners stay fixed.
+   Each edge is sampled at TESS_SEG = 12 segments (13 points), straight
+   lineTo between samples. ------------------------------------------- */
+
+/* curated stocks: tile A / tile B / third tile (hex 3-coloring) /
+   hairline ink / dark flag (drives scrim vs paper veil under type).
+   All hexes come from the brand sets above (MARBLE / INK_STOCK / HT_INKS). */
+const TESS_STOCK = [
+  { n:'moegi on byakuroku', a:'#F4F7EE', b:'#AACF53', c:'#7BA428', l:'#2C3B18', d:false },
+  { n:'sumi woodcut',       a:'#F1EBDC', b:'#33312E', c:'#595857', l:'#15130F', d:false },
+  { n:'ruri on gofun',      a:'#FAFCF5', b:'#2A5FB0', c:'#12305C', l:'#12141C', d:false },
+  { n:'ai night',           a:'#04141F', b:'#007BBB', c:'#004C71', l:'#020A10', d:true  },
+  { n:'suo on cream',       a:'#F2EDDF', b:'#9E3D3F', c:'#BF783A', l:'#43261F', d:false },
+  { n:'sumi night',         a:'#15130F', b:'#595857', c:'#F1EBDC', l:'#0C0D09', d:true  },
+  { n:'hi on cream',        a:'#F2EDDF', b:'#D3381C', c:'#EB6101', l:'#43261F', d:false },
+  { n:'edomurasaki dusk',   a:'#120C18', b:'#745399', c:'#3A2A55', l:'#09060C', d:true  },
+];
+const TESS_SEG = 12;
+function tessStart(x, s, R){
+  const st = pick(R, TESS_STOCK);
+  x.canvas._palName = st.n;
+  x.canvas._tessDark = st.d;
+  x.fillStyle = st.a; x.fillRect(0, 0, s, s);
+  return st;
+}
+function tessProfile(R){
+  const c1 = (R() * 2 - 1) * .6, c2 = R() * 2 - 1, c3 = (R() * 2 - 1) * .4;
+  let m = 0;
+  for (let i = 1; i < 32; i++){
+    const u = i / 32;
+    m = Math.max(m, Math.abs(c1 * Math.sin(Math.PI * u) + c2 * Math.sin(TAU * u) + c3 * Math.sin(3 * Math.PI * u)));
+  }
+  const k = 1 / (m || 1);
+  return u => (c1 * Math.sin(Math.PI * u) + c2 * Math.sin(TAU * u) + c3 * Math.sin(3 * Math.PI * u)) * k;
+}
+function tessPoly(x, pts){
+  x.beginPath();
+  x.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) x.lineTo(pts[i][0], pts[i][1]);
+  x.closePath();
+}
+function tessCell(x, pts, fill, line, lw){
+  tessPoly(x, pts);
+  x.fillStyle = fill; x.fill();
+  x.strokeStyle = line; x.lineWidth = lw; x.stroke();
+}
+const tessShade = (hex, i, j, sd) => css(toRGB(hex, (vhash(i + 37, j + 91, sd) - .5) * .16));
+/* colouring modes: 0 checkerboard (hex family: proper 3-colouring),
+   1 row stripes, 2 quiet field with sparse accent tiles. tri = hex. */
+function tessColor(st, mode, i, j, tri, sd){
+  if (mode === 1) return ((j % 2) + 2) % 2 ? st.b : st.a;
+  if (mode === 2){
+    const h = vhash(i + 211, j + 57, sd);
+    return h < .14 ? st.b : (tri && h < .20 ? st.c : st.a);
+  }
+  if (tri) return [st.a, st.b, st.c][((i - j) % 3 + 3) % 3];
+  return ((i + j) % 2 + 2) % 2 ? st.b : st.a;
+}
+
+/* square lattice, p1 translation: what bulges out of the bottom edge is
+   carved into the top; ditto left/right. CHARACTER: fine fabric -
+   8..12 cells across, subtle deformation. */
+function tessWeave(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const st = tessStart(x, s, R);
+  const mode = Math.floor(R() * 3);
+  const n = 8 + Math.floor(R() * 5);
+  const cell = s / n;
+  const rot0 = R() * Math.PI / 2;
+  const ampF = .07 + R() * .08;
+  const gH = tessProfile(R), gV = tessProfile(R);
+  const ph = R() * TAU;
+  const sd = (R() * 2147483647) | 0;
+  const a = ampF * cell * (1 + .05 * Math.sin(t * .4 + ph));
+  const lw = Math.max(.75, cell * .03);
+  const m = Math.ceil(n * .75) + 1;
+  x.save();
+  x.translate(s / 2, s / 2); x.rotate(rot0 + t * .02);
+  x.lineJoin = 'round';
+  for (let j = -m; j < m; j++) for (let i = -m; i < m; i++){
+    const ox = i * cell, oy = j * cell;
+    if (Math.hypot(ox + cell / 2, oy + cell / 2) > s * .72 + cell) continue;
+    const p = [];
+    for (let k = 0; k <= TESS_SEG; k++){ const u = k / TESS_SEG; p.push([ox + u * cell, oy + gH(u) * a]); }
+    for (let k = 1; k <= TESS_SEG; k++){ const v = k / TESS_SEG; p.push([ox + cell + gV(v) * a, oy + v * cell]); }
+    for (let k = TESS_SEG - 1; k >= 0; k--){ const u = k / TESS_SEG; p.push([ox + u * cell, oy + cell + gH(u) * a]); }
+    for (let k = TESS_SEG - 1; k >= 1; k--){ const v = k / TESS_SEG; p.push([ox + gV(v) * a, oy + v * cell]); }
+    tessCell(x, p, tessShade(tessColor(st, mode, i, j, false, sd), i, j, sd), st.l, lw);
+  }
+  x.restore();
+}
+
+/* hex lattice, translation (Escher's reptiles/fish grammar): three free
+   edge curves on edges 0..2; edges 3..5 are the same curves translated
+   to the opposite side and reversed. Proper 3-colouring (i-j) mod 3. */
+function tessReptile(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const st = tessStart(x, s, R);
+  const mode = Math.floor(R() * 3);
+  const n = 3 + Math.floor(R() * 4);
+  const rr = s / (1.732 * n);
+  const rot0 = R() * Math.PI / 2;
+  const ampF = .14 + R() * .12;
+  const prof = [tessProfile(R), tessProfile(R), tessProfile(R)];
+  const ph = R() * TAU;
+  const sd = (R() * 2147483647) | 0;
+  const a = ampF * rr * (1 + .05 * Math.sin(t * .4 + ph));
+  const lw = Math.max(.75, rr * .05);
+  /* hexagon: pointy-top, vertices at 90+60k deg */
+  const V = [];
+  for (let k = 0; k < 6; k++){
+    const an = (90 + 60 * k) * Math.PI / 180;
+    V.push([rr * Math.cos(an), rr * Math.sin(an)]);
+  }
+  const E = [0, 1, 2].map(k => {          /* base curve, edge k: V[k] -> V[k+1] */
+    const A = V[k], B = V[k + 1];
+    const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy);
+    const nx = -dy / len, ny = dx / len;  /* fixed perpendicular, shared with the mate */
+    const pts = [];
+    for (let q = 0; q <= TESS_SEG; q++){
+      const u = q / TESS_SEG, f = prof[k](u) * a;
+      pts.push([A[0] + dx * u + nx * f, A[1] + dy * u + ny * f]);
+    }
+    return pts;
+  });
+  const D = [0, 1, 2].map(k => [V[k][0] + V[k + 1][0], V[k][1] + V[k + 1][1]]);
+  const tile = [];                        /* one closed outline, built once */
+  for (let k = 0; k < 3; k++) for (let q = k ? 1 : 0; q <= TESS_SEG; q++) tile.push(E[k][q]);
+  for (let k = 0; k < 3; k++) for (let q = TESS_SEG - 1; q >= (k < 2 ? 0 : 1); q--)
+    tile.push([E[k][q][0] - D[k][0], E[k][q][1] - D[k][1]]);
+  const mj = Math.ceil(s * .75 / (1.5 * rr)) + 1, mi = Math.ceil(s * .75 / (1.732 * rr)) + 2;
+  x.save();
+  x.translate(s / 2, s / 2); x.rotate(rot0 + t * .02);
+  x.lineJoin = 'round';
+  for (let j = -mj; j <= mj; j++) for (let i = -mi - 2; i <= mi + 2; i++){
+    const cx = 1.732 * rr * (i + j / 2), cy = 1.5 * rr * j;
+    if (Math.hypot(cx, cy) > s * .74 + 2 * rr) continue;
+    const base = tessColor(st, mode, i, j, true, sd);
+    tessCell(x, tile.map(p => [p[0] + cx, p[1] + cy]), tessShade(base, i, j, sd), st.l, lw);
+  }
+  x.restore();
+}
+
+/* square lattice, p4 rotation (Escher's lizards): edge AB is a free
+   curve; BC is AB rotated -90 deg about corner B; CD is a second free
+   curve; DA is CD rotated -90 deg about D. The plane is the orbit of
+   the base tile under rho(x,y)=(1+y,1-x) (in cell units) plus even
+   translations - four rotated copies pinwheel around alternating
+   corners. Checkerboard = rotation parity = (i+j) parity. */
+function tessPinwheel(x, s, R, pal, t, force){
+  if (!force && !throttled(x, t, 24)) return;
+  const st = tessStart(x, s, R);
+  const mode = Math.floor(R() * 3);
+  const n = 2 + Math.floor(R() * 3);
+  const cell = s / n;
+  const rot0 = R() * Math.PI / 2;
+  const ampF = .16 + R() * .10;
+  const g1 = tessProfile(R), g2 = tessProfile(R);
+  const ph = R() * TAU;
+  const sd = (R() * 2147483647) | 0;
+  const a = ampF * (1 + .05 * Math.sin(t * .4 + ph));   /* unit-cell space */
+  const lw = Math.max(.75, cell * .03);
+  const base = [];
+  for (let k = 0; k <= TESS_SEG; k++){ const u = k / TESS_SEG; base.push([u, g1(u) * a]); }
+  for (let k = TESS_SEG - 1; k >= 0; k--){ const u = k / TESS_SEG; base.push([1 + g1(u) * a, 1 - u]); }
+  for (let k = 1; k <= TESS_SEG; k++){ const u = k / TESS_SEG; base.push([1 - u, 1 + g2(u) * a]); }
+  for (let k = TESS_SEG - 1; k >= 1; k--){ const u = k / TESS_SEG; base.push([g2(u) * a, u]); }
+  const rho = p => [1 + p[1], 1 - p[0]];
+  const variants = [base];
+  for (let r = 1; r < 4; r++) variants.push(variants[r - 1].map(rho));
+  const OX = [0, 1, 1, 0], OY = [0, 0, -1, -1], RIDX = [[0, 3], [1, 2]];
+  const m = Math.ceil(n * .75) + 1;
+  x.save();
+  x.translate(s / 2, s / 2); x.rotate(rot0 + t * .02);
+  x.lineJoin = 'round';
+  for (let j = -m; j < m; j++) for (let i = -m; i < m; i++){
+    if (Math.hypot((i + .5) * cell, (j + .5) * cell) > s * .72 + cell * (1 + ampF)) continue;
+    const r = RIDX[((i % 2) + 2) % 2][((j % 2) + 2) % 2];
+    const tx = i - OX[r], ty = j - OY[r];
+    const pts = variants[r].map(p => [(p[0] + tx) * cell, (p[1] + ty) * cell]);
+    tessCell(x, pts, tessShade(tessColor(st, mode, i, j, false, sd), i, j, sd), st.l, lw);
+  }
+  x.restore();
+}
+const TESS_FAMS = [tessWeave, tessReptile, tessPinwheel];
+
 /* -- D. Editorial Type over a generated ground ----------------------
    The v3 favourite, composed over each of the three v5 grounds. */
 function coverScrim(x, s, dark){
@@ -1328,6 +1557,12 @@ const V4 = [
     note:'One fan filling the sheet: alternating thin and thick wedges from a seeded origin (centred, or pushed to an edge so the rays run off the frame), rotating imperceptibly, with a paper hub and hairline ring as the focal element. <strong>Portability:</strong> wedges are two lines and an arc &mdash; trivial in SwiftUI and in SVG.' },
   { key:'ink-hex', name:'Ink &mdash; Hex Lattice', draw:inkHex, fresh:true,
     note:'A full-bleed hexagonal line maze with one solid focal cell pair, the lattice drifting sideways and the stroke breathing a few percent. The most textural of the four &mdash; it works best as a ground under type. <strong>Portability:</strong> stroked polygons; identical in SwiftUI and SVG.' },
+  { key:'tess-weave', name:'Tessellation &mdash; Weave', draw:tessWeave, fresh:true,
+    note:'<strong>New: Escher-style interlocking tilings.</strong> A square lattice where whatever bulges out of a tile&rsquo;s bottom edge is carved into its top, and the same for left/right (p1 translation symmetry) &mdash; two seeded three-harmonic curves shared by every tile, so the plane interlocks with <em>zero</em> gaps or overlaps (verified: every interior boundary segment is shared by exactly two tiles). This family&rsquo;s character is a <strong>fine fabric</strong> &mdash; 8&ndash;12 cells across, subtle deformation. Every tessellation cover rolls its own colouring mode (checkerboard, row stripes, or a quiet field with sparse accent tiles), a 0&ndash;90&deg; lattice rotation, and one of eight curated brand stocks; per-tile flat shade jitter from an integer hash, a hairline ink stroke sealing the seams, and the whole lattice slowly rotating while the deformation breathes a few percent. <strong>Portability: the strongest of any family</strong> &mdash; pure moveTo/lineTo polygons with flat fills, no filters, no gradients; CoreGraphics 1:1 and one SVG <code>&lt;path&gt;</code> per tile (~100&ndash;150 at full bleed).' },
+  { key:'tess-reptile', name:'Tessellation &mdash; Reptile', draw:tessReptile, fresh:true,
+    note:'The hex-lattice translation grammar of Escher&rsquo;s reptiles and fish: three free seeded edge curves on one half of the hexagon, replayed reversed on the three opposite edges, so six-sided creatures lock together perfectly. The <strong>mid-scale</strong> family: 3&ndash;6 hex columns across, deformation from gentle to aggressive. In checkerboard mode it gets a proper 3-colouring &mdash; <code>(i&nbsp;&minus;&nbsp;j) mod 3</code>, neighbours never share a colour &mdash; which is what makes tessellations read as figure-and-ground rather than as a wobbly grid. Same stocks, modes, shade jitter, and slow lattice rotation as the weave.' },
+  { key:'tess-pinwheel', name:'Tessellation &mdash; Pinwheel', draw:tessPinwheel, fresh:true,
+    note:'The p4 rotation grammar of Escher&rsquo;s lizards: deform edge AB, rotate that deformation 90&deg; about corner B onto edge BC; deform CD, rotate it about D onto DA. Four rotated copies of the one tile pinwheel around alternating corners and tile the plane &mdash; the rotation parity <em>is</em> the checkerboard. The <strong>bold</strong> family: only 2&ndash;4 giant tiles across at deep amplitude, so the tiles become hooked creatures chasing each other around the 4-fold centres &mdash; the most figurative of the three.' },
   { key:'editorial-ground', name:'Editorial Type over a ground', draw:editorialGround, fresh:true,
     note:'<strong>The likely finalist.</strong> The v3 Editorial Type treatment &mdash; big lowercase title, every third word in Fraunces italic, oto&rsquo;s real metadata as a mono strap &mdash; composed over each of the three v5 grounds (the ground is chosen by the seed: fluid marble, halftone, or ink). Dark grounds get a top-and-bottom scrim and white type; the ink poster gets a paper veil and ink type. The type carries the meaning, the seeded ground carries mood and uniqueness, and both come from the same <code>(id, mood)</code> seed. On iOS the type is a SwiftUI <code>Text</code> overlay over the <code>Canvas</code> ground (free wrapping and Dynamic Type); on share pages it is <code>&lt;text&gt;</code> over the ground&rsquo;s SVG or PNG.' },
 ];
@@ -1607,7 +1842,7 @@ function specOf(seed){
   seed = seed.toUpperCase();
   const R = mulberry32(fnv1a('cover:' + seed));
   const sample = POOL[Math.floor(R() * POOL.length)];
-  const ground = gv('gGround') || pick(R, ['fluid', 'halftone', 'ink']);
+  const ground = gv('gGround') || pick(R, ['fluid', 'halftone', 'ink', 'tessellation']);
   const lay = gv('gLayout') === '' ? Math.floor(R() * 3) : +gv('gLayout');
   return { seed, sample, ground, lay, mood: gv('gMood') || sample.mood, pinned: false };
 }
@@ -1620,8 +1855,11 @@ function drawCover(x, s, spec, t){
   const pal = PALETTES[spec.mood] || PALETTES.calm;
   if (spec.ground === 'fluid') fluid(x, s, R, pal, t, true);
   else if (spec.ground === 'halftone') halftone(x, s, R, pal, t, spec.sample.emoji, true);
+  else if (spec.ground === 'tessellation') pick(R, TESS_FAMS)(x, s, R, pal, t, true);
   else pick(R, [inkRings, inkContours, inkBurst, inkHex])(x, s, R, pal, t, true);
-  const dark = spec.ground === 'fluid';   /* halftone prints on light stock */
+  /* halftone + ink print on light stock; tessellation's stock carries its own flag */
+  const dark = spec.ground === 'fluid' ||
+    (spec.ground === 'tessellation' && !!c._tessDark);
   coverScrim(x, s, dark);
   editorialType(x, s, spec.sample, dark ? '#fff' : '#181A13', dark ? .78 : .74, spec.lay);
   return spec.ground + ' \u00b7 ' + (c._palName || spec.mood);
