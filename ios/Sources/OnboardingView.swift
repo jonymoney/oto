@@ -2,11 +2,37 @@ import SwiftUI
 import UIKit
 
 /// First-run gate. The orchestrator wires `if Onboarding.needed { OnboardingView(done:) }`.
+/// Tracked PER ACCOUNT (email) in local settings: the completed set survives
+/// sign-out, so a returning account skips onboarding while a brand-new
+/// account on the same device still gets it.
 enum Onboarding {
-    static var needed: Bool { !UserDefaults.standard.bool(forKey: "onboardingDone") }
-    static func markDone() { UserDefaults.standard.set(true, forKey: "onboardingDone") }
-    /// Sign-out wipe: the next account (even a returning one) onboards again.
-    static func reset() { UserDefaults.standard.removeObject(forKey: "onboardingDone") }
+    private static let doneKey = "onboardedEmails"     // accounts that finished it
+    private static let accountKey = "onboardingAccount" // currently signed-in email
+
+    /// Called on successful sign-in with the account's email. Lowercased so
+    /// "Foo@x.com" and "foo@x.com" count as the same account across logins.
+    static func signedIn(email: String) {
+        UserDefaults.standard.set(email.lowercased(), forKey: accountKey)
+    }
+
+    /// Sign-out wipe: forget who is signed in, but keep the completed set.
+    static func signedOut() {
+        UserDefaults.standard.removeObject(forKey: accountKey)
+    }
+
+    static var needed: Bool {
+        // No recorded account (session predates this key): don't re-onboard.
+        guard let email = UserDefaults.standard.string(forKey: accountKey) else { return false }
+        return !(UserDefaults.standard.stringArray(forKey: doneKey) ?? []).contains(email)
+    }
+
+    static func markDone() {
+        guard let email = UserDefaults.standard.string(forKey: accountKey) else { return }
+        var done = UserDefaults.standard.stringArray(forKey: doneKey) ?? []
+        guard !done.contains(email) else { return }
+        done.append(email)
+        UserDefaults.standard.set(done, forKey: doneKey)
+    }
 }
 
 /// Four-page first-run flow: pick a voice, pick a cover style, how it works,

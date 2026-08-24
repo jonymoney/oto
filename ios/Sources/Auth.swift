@@ -72,6 +72,7 @@ final class AuthManager {
         do {
             let token = try await API.signInWithOTP(email: destination, otp: otp)
             TokenStore.token = token
+            Onboarding.signedIn(email: destination)  // per-account onboarding key
             phase = .signedIn                        // → main app
             Log.auth.notice("signed in — session stored (\(token.count, privacy: .public) chars)")
         } catch {
@@ -117,7 +118,7 @@ final class AuthManager {
     /// downloaded audio). Device-level prefs (haptics) stay.
     private func wipeLocalData() {
         AvatarCache.wipe()
-        Onboarding.reset()
+        Onboarding.signedOut() // keeps the per-account completed set
         ResumeStore.wipe()
         Downloads.shared.removeAll()
     }
