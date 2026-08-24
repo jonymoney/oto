@@ -158,7 +158,6 @@ struct OnboardingView: View {
     }
 
     private func play(_ voice: API.Voice) async {
-        preview.stop() // toggle() would pause a same-voice replay; stop first so it restarts
         await preview.toggle(voice: voice.name, provider: voice.provider, language: prefs?.language)
     }
 
