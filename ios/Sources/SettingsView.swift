@@ -254,6 +254,19 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.surface)
 
+            #if DEBUG
+            // Xcode builds only — stripped from Release/App Store binaries.
+            Section {
+                Button("Reset onboarding") { Onboarding.debugReset() }
+                    .foregroundStyle(Theme.ink)
+            } header: {
+                Text("Debug")
+            } footer: {
+                Text("Onboarding runs again the next time the app launches.")
+            }
+            .listRowBackground(Theme.surface)
+            #endif
+
             Section {
                 Button("Sign out", role: .destructive) { confirmingSignOut = true }
                     .frame(maxWidth: .infinity)

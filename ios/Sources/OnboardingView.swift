@@ -33,6 +33,17 @@ enum Onboarding {
         done.append(email)
         UserDefaults.standard.set(done, forKey: doneKey)
     }
+
+    #if DEBUG
+    /// Settings debug menu: forget completion for the signed-in account so
+    /// onboarding relaunches on next app start. Never compiled into Release.
+    static func debugReset() {
+        guard let email = UserDefaults.standard.string(forKey: accountKey) else { return }
+        var done = UserDefaults.standard.stringArray(forKey: doneKey) ?? []
+        done.removeAll { $0 == email }
+        UserDefaults.standard.set(done, forKey: doneKey)
+    }
+    #endif
 }
 
 /// Four-page first-run flow: pick a voice, pick a cover style, how it works,
@@ -223,11 +234,9 @@ struct OnboardingView: View {
         .scrollIndicators(.hidden)
     }
 
+    // Same label locked or not — a locked choose just opens the paywall.
     private var chooseLabel: String {
-        guard let voice = centeredVoice else { return "Continue" }
-        return isLocked(voice)
-            ? "Unlock \(voice.name.capitalized) with oto unlimited"
-            : "Choose \(voice.name.capitalized)"
+        centeredVoice.map { "Choose \($0.name.capitalized)" } ?? "Continue"
     }
 
     private func voiceSlide(_ voice: API.Voice) -> some View {
