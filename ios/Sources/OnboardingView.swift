@@ -69,10 +69,11 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             TabView(selection: $page) {
-                voicePage.tag(0)
-                stylePage.tag(1)
-                explainerPage.tag(2)
-                connectPage.tag(3)
+                welcomePage.tag(0)
+                voicePage.tag(1)
+                stylePage.tag(2)
+                explainerPage.tag(3)
+                connectPage.tag(4)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
 
@@ -82,7 +83,7 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
         .overlay(alignment: .topTrailing) {
-            if page < 3 {
+            if page < 4 {
                 Button("Skip") { finish() }
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink2)
@@ -99,7 +100,7 @@ struct OnboardingView: View {
         .onChange(of: centeredVoice) { old, voice in
             if old != nil { Haptics.selection() }
             autoplayTask?.cancel()
-            guard let voice, page == 0 else { return }
+            guard let voice, page == 1 else { return }
             // Debounce so we only play once the carousel settles.
             autoplayTask = Task {
                 try? await Task.sleep(nanoseconds: 350_000_000)
@@ -161,6 +162,57 @@ struct OnboardingView: View {
         await preview.toggle(voice: voice.name, provider: voice.provider, language: prefs?.language)
     }
 
+    // MARK: - Page 0: what is oto
+
+    private var welcomePage: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            VoiceOrbView(state: .idle, level: 0, palette: OrbPalettes.palette(for: "alloy"))
+                .frame(width: 200, height: 200)
+                .padding(.bottom, 28)
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle()
+                    .fill(Theme.accent)
+                    .frame(width: 12, height: 12)
+                Text("oto")
+                    .font(.system(size: 46, weight: .bold))
+                    .tracking(-1.5)
+                    .foregroundStyle(Theme.ink)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("oto")
+
+            Text("Anything, read aloud.")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+                .padding(.top, 6)
+
+            Text("Ask your AI chat to read articles, notes, or stories — oto turns them into audios that live here, ready to play anytime.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.ink2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+                .padding(.top, 10)
+
+            Spacer(minLength: 0)
+
+            Button {
+                Haptics.tap()
+                withAnimation(.spring(duration: 0.35)) { page = 1 }
+            } label: {
+                Text("Get started")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
     // MARK: - Page 1: pick your voice
 
     private var voicePage: some View {
@@ -204,7 +256,7 @@ struct OnboardingView: View {
                     // ponytail: best-effort persist; Settings is the recovery path if it fails
                     Task { _ = try? await API.updatePrefs(voice: voice.name) }
                 }
-                withAnimation(.spring(duration: 0.35)) { page = 1 }
+                withAnimation(.spring(duration: 0.35)) { page = 2 }
             } label: {
                 Text(chooseLabel)
                     .font(.headline)
@@ -335,7 +387,7 @@ struct OnboardingView: View {
                 Haptics.success()
                 // ponytail: best-effort persist; Settings is the recovery path if it fails
                 Task { _ = try? await API.updateCoverStyle(coverStyle) }
-                withAnimation(.spring(duration: 0.35)) { page = 2 }
+                withAnimation(.spring(duration: 0.35)) { page = 3 }
             } label: {
                 Text("Continue")
                     .font(.headline)
@@ -371,7 +423,7 @@ struct OnboardingView: View {
 
             Button {
                 Haptics.tap()
-                withAnimation(.spring(duration: 0.35)) { page = 3 }
+                withAnimation(.spring(duration: 0.35)) { page = 4 }
             } label: {
                 Text("Next")
                     .font(.headline)
@@ -515,7 +567,7 @@ struct OnboardingView: View {
 
     private var pageDots: some View {
         HStack(spacing: 8) {
-            ForEach(0..<4, id: \.self) { i in
+            ForEach(0..<5, id: \.self) { i in
                 Capsule()
                     .fill(i == page ? Theme.accent : Theme.ink3.opacity(0.4))
                     .frame(width: i == page ? 20 : 7, height: 7)
