@@ -72,7 +72,7 @@ struct SettingsView: View {
     private func voiceOrder(_ all: [API.Voice]) -> [API.Voice] {
         let openai = all.filter { $0.provider == "openai" }
         let fish = all.filter { $0.provider == "fish" }
-        return Array(openai.prefix(2)) + fish + openai.dropFirst(2)
+        return Array(openai.prefix(2)) + fish + Array(openai.dropFirst(2))
     }
 
     // Fish voices are gated behind unlimited whenever a quota is active —
