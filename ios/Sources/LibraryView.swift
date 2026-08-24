@@ -54,23 +54,41 @@ struct LibraryView: View {
         scenePhase == .active && model.items.contains { $0.status == "processing" }
     }
 
-    // Unlimited reads as an exponent on the wordmark — oto∞, like n².
     // navigationTitle strips rich-text styling, so the styled mark lives in the
     // nav bar as a leading toolbar item (the Apple Music/News branded-header
     // pattern).
     private var unlimited: Bool { model.usage?.unlimited == true }
 
+    /// The app icon, at toolbar size: lowercase ink "oto" followed by a moegi
+    /// dot on the baseline. Unlimited swaps that dot for ∞ — one accent slot,
+    /// two states — rather than hanging an exponent off the wordmark.
+    /// ponytail: system bold stands in for Clash Display until the face is
+    /// bundled; tracking is what carries the icon's tight geometric fit.
     private var wordmark: some View {
-        (Text("oto").font(.system(size: 26, weight: .bold))
-            + Text(unlimited ? "∞" : "")
-                .font(.system(size: 16, weight: .bold))
-                .baselineOffset(10)
-                .foregroundStyle(Theme.accent))
-            // iOS 26 proposes bar items a width sized for the default toolbar
-            // font, so our larger mark truncates to "o…" — take the ideal size.
-            .fixedSize()
-            .accessibilityLabel(unlimited ? "oto — unlimited generation" : "oto")
-            .accessibilityAddTraits(.isHeader)
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text("oto")
+                .font(.system(size: 24, weight: .bold))
+                .tracking(-0.8)
+                .foregroundStyle(Theme.ink)
+            if unlimited {
+                Text("∞")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+            } else {
+                Circle()
+                    .fill(Theme.accent)
+                    .frame(width: 6, height: 6)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        // iOS 26 proposes bar items a width sized for the default toolbar
+        // font, so our larger mark truncates to "o…" — take the ideal size.
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(unlimited ? "oto — unlimited generation" : "oto")
+        .accessibilityAddTraits(.isHeader)
     }
 
     var body: some View {
