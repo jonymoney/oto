@@ -67,6 +67,14 @@ struct SettingsView: View {
     @State private var deleteError: String?
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
 
+    // Picker rail order: 2 OpenAI voices up front, the fish lineup, then the
+    // remaining OpenAI voices — same pitch order as onboarding, nothing hidden.
+    private func voiceOrder(_ all: [API.Voice]) -> [API.Voice] {
+        let openai = all.filter { $0.provider == "openai" }
+        let fish = all.filter { $0.provider == "fish" }
+        return Array(openai.prefix(2)) + fish + openai.dropFirst(2)
+    }
+
     // Fish voices are gated behind unlimited whenever a quota is active —
     // mirrors the server's generation-time gate. Deliberately NOT tied to
     // showUpgrade: a non-US storefront hides the upgrade UI but the voices
@@ -103,7 +111,7 @@ struct SettingsView: View {
                 if let prefs = model.prefs {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(prefs.voices, id: \.self) { voice in
+                            ForEach(voiceOrder(prefs.voices), id: \.self) { voice in
                                 let locked = fishLocked && voice.provider == "fish"
                                 VoiceOrbCard(voice: voice, selected: prefs.voice == voice.name, locked: locked, preview: preview) {
                                     // ponytail: one tap gesture per orb — a locked orb opens
