@@ -46,7 +46,7 @@ enum Onboarding {
     #endif
 }
 
-/// Four-page first-run flow: pick a voice, pick a cover style, how it works,
+/// Four-page first-run flow: what oto is, pick a voice, pick a cover style,
 /// connect your AI.
 struct OnboardingView: View {
     let done: () -> Void
@@ -72,8 +72,7 @@ struct OnboardingView: View {
                 welcomePage.tag(0)
                 voicePage.tag(1)
                 stylePage.tag(2)
-                explainerPage.tag(3)
-                connectPage.tag(4)
+                connectPage.tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
 
@@ -83,7 +82,7 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
         .overlay(alignment: .topTrailing) {
-            if page < 4 {
+            if page < 3 {
                 Button("Skip") { finish() }
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink2)
@@ -399,56 +398,7 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Page 3: how audios are made
-
-    private var explainerPage: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("How audios are made")
-                .font(.largeTitle.bold())
-                .foregroundStyle(Theme.ink)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 72)
-
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 36) {
-                explainerRow("text.bubble", "Ask your AI to read anything")
-                explainerRow("waveform", "oto turns it into audio with your voice")
-                explainerRow("play.circle", "It lands here, ready to play — anywhere")
-            }
-            .padding(.horizontal, 32)
-
-            Spacer()
-
-            Button {
-                Haptics.tap()
-                withAnimation(.spring(duration: 0.35)) { page = 4 }
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
-        }
-    }
-
-    private func explainerRow(_ symbol: String, _ text: String) -> some View {
-        HStack(spacing: 18) {
-            Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(Theme.accent)
-                .frame(width: 48, height: 48)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
-            Text(text)
-                .font(.body)
-                .foregroundStyle(Theme.ink)
-        }
-    }
-
-    // MARK: - Page 4: connect your AI
+    // MARK: - Page 3: connect your AI
 
     private var connectPage: some View {
         VStack(spacing: 0) {
@@ -566,7 +516,7 @@ struct OnboardingView: View {
 
     private var pageDots: some View {
         HStack(spacing: 8) {
-            ForEach(0..<5, id: \.self) { i in
+            ForEach(0..<4, id: \.self) { i in
                 Capsule()
                     .fill(i == page ? Theme.accent : Theme.ink3.opacity(0.4))
                     .frame(width: i == page ? 20 : 7, height: 7)
