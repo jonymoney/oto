@@ -83,7 +83,7 @@ final class PlayerModel {
         } catch APIError.unauthorized {
             auth.sessionExpired()
         } catch {
-            errorMessage = "Couldn't load this audio."
+            errorMessage = String(localized: "Couldn't load this audio.")
         }
         loading = false
     }
@@ -347,7 +347,7 @@ struct PlayerView: View {
     private var tags: [String] { model.detail?.tags ?? item.tags }
     /// nil = the current user's own audio.
     private var owner: String? { model.detail?.owner ?? item.owner }
-    private var authorLabel: String { owner.map { "@\($0)" } ?? "Me" }
+    private var authorLabel: String { owner.map { "@\($0)" } ?? String(localized: "Me") }
     private var visibility: String {
         localVisibility ?? model.detail?.visibility ?? item.visibility ?? "private"
     }
@@ -614,7 +614,7 @@ struct PlayerView: View {
             ?? ISO8601DateFormatter().date(from: item.createdAt)
         if let d = iso { parts.append(d.formatted(date: .abbreviated, time: .omitted)) }
         parts.append(item.voice)
-        if let c = clientName { parts.append("made with \(c)") }
+        if let c = clientName { parts.append(String(localized: "made with \(c)")) }
         return parts.joined(separator: " · ")
     }
 
@@ -731,15 +731,15 @@ struct PlayerView: View {
                     }
                 } label: {
                     if v.value == visibility {
-                        Label(v.value.capitalized, systemImage: "checkmark")
+                        Label(visibilityLabel(v.value), systemImage: "checkmark")
                     } else {
-                        Label(v.value.capitalized, systemImage: v.icon)
+                        Label(visibilityLabel(v.value), systemImage: v.icon)
                     }
                 }
             }
         } label: {
             let icon = Self.visibilities.first { $0.value == visibility }?.icon ?? "lock"
-            Label(visibility.capitalized, systemImage: icon)
+            Label(visibilityLabel(visibility), systemImage: icon)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Theme.ink2)
                 .padding(.horizontal, 10).padding(.vertical, 5)

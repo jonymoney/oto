@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
+  developmentLanguage: en
 
 targets:
   oto:
@@ -31,6 +32,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: oto
+        # UI languages served by Localizable.xcstrings (en is the base).
+        CFBundleLocalizations: [en, es, zh-Hans, ja, de, fr]
         UILaunchScreen: {}
         # Deep link the magic-link web handoff bounces the session token to.
         CFBundleURLTypes:

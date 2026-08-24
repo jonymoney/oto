@@ -193,7 +193,7 @@ struct ExploreView: View {
 
     private func followButton(for user: API.UserSummary) -> some View {
         let following = model.followedNames.contains(user.username)
-        return Button(following ? "Following" : "Follow") {
+        return Button(following ? String(localized: "Following") : String(localized: "Follow")) {
             model.setFollow(user, following: !following)
         }
         .font(.subheadline.weight(.semibold))
@@ -258,7 +258,7 @@ struct ExploreView: View {
         .scrollContentBackground(.hidden)
     }
 
-    private func railSection(_ title: String, items: [AudioItem]) -> some View {
+    private func railSection(_ title: LocalizedStringKey, items: [AudioItem]) -> some View {
         Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {
@@ -475,7 +475,7 @@ struct UserProfileView: View {
                 .foregroundStyle(Theme.ink)
             Text("\(profile.counts.audios) audios · \(profile.counts.followers) followers · \(profile.counts.following) following")
                 .font(.caption).foregroundStyle(Theme.ink2)
-            Button(youFollow ? "Following" : "Follow") { toggleFollow() }
+            Button(youFollow ? String(localized: "Following") : String(localized: "Follow")) { toggleFollow() }
                 .font(.subheadline.weight(.semibold))
                 .buttonStyle(.bordered)
                 .tint(youFollow ? Theme.ink3 : Theme.accent)

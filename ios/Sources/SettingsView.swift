@@ -28,7 +28,7 @@ final class SettingsModel {
             auth.sessionExpired()
             return
         } catch {
-            errorMessage = "Couldn't load settings."
+            errorMessage = String(localized: "Couldn't load settings.")
         }
         // Best-effort: profile + usage are display-only, failures just hide them.
         me = try? await API.me()
@@ -47,7 +47,7 @@ final class SettingsModel {
             prefs = try await API.updatePrefs(voice: voice, language: language)
             if voice != nil { Haptics.success() }
         } catch {
-            errorMessage = "Couldn't save that setting."
+            errorMessage = String(localized: "Couldn't save that setting.")
         }
     }
 }
@@ -102,7 +102,7 @@ struct SettingsView: View {
                 NavigationLink {
                     UsernameEditView(current: model.me?.username) { model.me = $0 }
                 } label: {
-                    LabeledContent("Username", value: model.me?.username.map { "@\($0)" } ?? "Set username")
+                    LabeledContent("Username", value: model.me?.username.map { "@\($0)" } ?? String(localized: "Set username"))
                 }
             }
             .listRowBackground(Theme.surface)
@@ -405,12 +405,12 @@ struct SettingsView: View {
 
     private func connectionSubtitle(_ conn: API.Connection) -> String {
         if let used = parseISO(conn.lastUsedAt) {
-            return "Last used \(used.formatted(.relative(presentation: .named)))"
+            return String(localized: "Last used \(used.formatted(.relative(presentation: .named)))")
         }
         if let first = parseISO(conn.firstConnectedAt) {
-            return "Connected \(first.formatted(date: .abbreviated, time: .omitted))"
+            return String(localized: "Connected \(first.formatted(date: .abbreviated, time: .omitted))")
         }
-        return "Connected"
+        return String(localized: "Connected")
     }
 
     private func disconnect(_ conn: API.Connection) async {
@@ -419,7 +419,7 @@ struct SettingsView: View {
             model.connections?.removeAll { $0.clientId == conn.clientId }
             Haptics.success()
         } catch {
-            model.errorMessage = "Couldn't disconnect \(conn.name)."
+            model.errorMessage = String(localized: "Couldn't disconnect \(conn.name).")
         }
     }
 
@@ -427,7 +427,7 @@ struct SettingsView: View {
         do {
             openURL(try await API.billingPortal())
         } catch {
-            model.errorMessage = "Couldn't open the billing portal."
+            model.errorMessage = String(localized: "Couldn't open the billing portal.")
         }
     }
 
@@ -443,7 +443,7 @@ struct SettingsView: View {
             if case let APIError.server(m) = error {
                 deleteError = m
             } else {
-                deleteError = "Check your connection and try again."
+                deleteError = String(localized: "Check your connection and try again.")
             }
         }
     }
@@ -486,7 +486,7 @@ private struct CoverStyleEditView: View {
                         Haptics.success()
                     } catch {
                         model.me?.coverStyle = old
-                        model.errorMessage = "Couldn't save that setting."
+                        model.errorMessage = String(localized: "Couldn't save that setting.")
                     }
                 }
             }
@@ -563,7 +563,7 @@ private struct ConnectGuideView: View {
         }
     }
 
-    private func step(_ n: Int, _ text: String) -> some View {
+    private func step(_ n: Int, _ text: LocalizedStringKey) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("\(n)").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
             Text(text).foregroundStyle(Theme.ink)

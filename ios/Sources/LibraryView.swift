@@ -24,9 +24,9 @@ final class LibraryModel {
             let offline = Downloads.shared.items
             if !offline.isEmpty {
                 items = offline
-                errorMessage = "Offline — showing downloads"
+                errorMessage = String(localized: "Offline — showing downloads")
             } else {
-                errorMessage = "Couldn't load your audios."
+                errorMessage = String(localized: "Couldn't load your audios.")
             }
         }
         // Usage is best-effort: a 401 is handled by the list load above; any
@@ -92,7 +92,7 @@ struct LibraryView: View {
         // font, so our larger mark truncates to "o…" — take the ideal size.
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(unlimited ? "oto — unlimited generation" : "oto")
+        .accessibilityLabel(unlimited ? String(localized: "oto — unlimited generation") : "oto")
         .accessibilityAddTraits(.isHeader)
     }
 
@@ -392,9 +392,9 @@ struct LibraryView: View {
                     }
                 } label: {
                     if v == current {
-                        Label(v.capitalized, systemImage: "checkmark")
+                        Label(visibilityLabel(v), systemImage: "checkmark")
                     } else {
-                        Text(v.capitalized)
+                        Text(visibilityLabel(v))
                     }
                 }
             }
@@ -520,6 +520,18 @@ struct CoverThumb: View {
                         .padding(3)
                 }
             }
+    }
+}
+
+/// Localized display name for a server visibility value ("private"…"public").
+/// Server values are data, so they never auto-localize — map them here.
+func visibilityLabel(_ v: String) -> String {
+    switch v {
+    case "private": String(localized: "Private")
+    case "followers": String(localized: "Followers")
+    case "friends": String(localized: "Friends")
+    case "public": String(localized: "Public")
+    default: v.capitalized
     }
 }
 

@@ -52,9 +52,10 @@ struct LoginView: View {
             .pickerStyle(.segmented)
             .disabled(auth.isWorking)
 
+            // Ternary literals resolve to String, not LocalizedStringKey — localize explicitly.
             Text(auth.method == .email
-                 ? "Enter your email to receive a code"
-                 : "Enter your phone number to receive a code")
+                 ? String(localized: "Enter your email to receive a code")
+                 : String(localized: "Enter your phone number to receive a code"))
                 .font(.footnote).foregroundStyle(Theme.ink2)
                 .multilineTextAlignment(.center)
 
@@ -120,13 +121,13 @@ struct LoginView: View {
             }
 
             HStack {
-                Button(resendIn > 0 ? "Resend in \(resendIn)s" : "Resend code") {
+                Button(resendIn > 0 ? String(localized: "Resend in \(resendIn)s") : String(localized: "Resend code")) {
                     Task { await auth.resendCode() }
                     resendIn = 60
                 }
                 .disabled(resendIn > 0 || auth.isWorking)
                 Spacer()
-                Button(auth.method == .email ? "Change email" : "Change phone") {
+                Button(auth.method == .email ? String(localized: "Change email") : String(localized: "Change phone")) {
                     auth.changeDestination()
                     code = ""
                 }

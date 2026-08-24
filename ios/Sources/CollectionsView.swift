@@ -28,7 +28,7 @@ struct CollectionsView: View {
                                 Image(systemName: "folder.fill").foregroundStyle(Theme.accent)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(c.name).foregroundStyle(Theme.ink)
-                                    Text("\(c.count) audio\(c.count == 1 ? "" : "s")")
+                                    Text("\(c.count) audios") // pluralized via the string catalog
                                         .font(.caption).foregroundStyle(Theme.ink2)
                                 }
                             }

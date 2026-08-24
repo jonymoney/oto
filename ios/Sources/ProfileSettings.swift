@@ -127,13 +127,13 @@ struct UsernameEditView: View {
             Haptics.warning() // taken/reserved/invalid/network error surfacing
             if case let APIError.server(m) = error {
                 switch m {
-                case "taken":    saveError = "That username is taken."
-                case "reserved": saveError = "That username is reserved."
-                case "invalid":  saveError = "Only a-z, 0-9 and dashes, 3–24 chars."
+                case "taken":    saveError = String(localized: "That username is taken.")
+                case "reserved": saveError = String(localized: "That username is reserved.")
+                case "invalid":  saveError = String(localized: "Only a-z, 0-9 and dashes, 3–24 chars")
                 default:         saveError = m
                 }
             } else {
-                saveError = "Couldn't save. Try again."
+                saveError = String(localized: "Couldn't save. Try again.")
             }
         }
     }

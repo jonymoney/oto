@@ -285,7 +285,7 @@ struct OnboardingView: View {
 
     // Same label locked or not — a locked choose just opens the paywall.
     private var chooseLabel: String {
-        centeredVoice.map { "Choose \($0.name.capitalized)" } ?? "Continue"
+        centeredVoice.map { String(localized: "Choose \($0.name.capitalized)") } ?? String(localized: "Continue")
     }
 
     private func voiceSlide(_ voice: API.Voice) -> some View {
@@ -317,8 +317,8 @@ struct OnboardingView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(
                 isLocked(voice)
-                    ? "\(voice.name.capitalized) — unlock with oto unlimited"
-                    : "Play \(voice.name.capitalized) preview"
+                    ? String(localized: "\(voice.name.capitalized) — unlock with oto unlimited")
+                    : String(localized: "Play \(voice.name.capitalized) preview")
             )
 
             VStack(spacing: 2) {
