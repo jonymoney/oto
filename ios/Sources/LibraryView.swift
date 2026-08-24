@@ -8,6 +8,9 @@ final class LibraryModel {
     var collections: [API.Collection] = []
     var loading = false
     var errorMessage: String?
+    // First load done — later refreshes (foreground, sheet dismiss) run
+    // silently behind the current UI instead of flashing the spinner.
+    private(set) var hasLoaded = false
 
     func load(auth: AuthManager) async {
         loading = true
@@ -37,6 +40,7 @@ final class LibraryModel {
         // keep the stale list on failure.
         if let c = try? await API.collections() { collections = c }
         loading = false
+        hasLoaded = true
     }
 }
 
@@ -190,7 +194,7 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if model.loading && model.items.isEmpty {
+        if model.loading && model.items.isEmpty && !model.hasLoaded {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.items.isEmpty {
             // ScrollView host so pull-to-refresh works in empty/error states too.

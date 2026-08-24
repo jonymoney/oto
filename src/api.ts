@@ -28,7 +28,14 @@ import type { AudioRecord, CoverStyle, Visibility } from './types.js'
 // Everything here reuses the existing data + storage layers — no new auth,
 // no new persistence.
 
-function listItem(rec: AudioRecord) {
+// Positions are personal. position_sec lives on the audios row (the OWNER's
+// spot), so it ships only when the viewer IS the owner — a foreign audio goes
+// out with none, never another user's position. Viewers' own positions on
+// foreign audios live client-side (ResumeStore).
+// ponytail: a (user_id, audio_id) positions table is the upgrade path if
+// cross-device resume on foreign audios ever matters.
+function listItem(rec: AudioRecord, viewerId?: string) {
+  const own = viewerId !== undefined && rec.userId === viewerId
   return {
     id: rec.id,
     title: rec.title,
@@ -43,8 +50,8 @@ function listItem(rec: AudioRecord) {
     charCount: rec.charCount,
     createdAt: rec.createdAt,
     status: rec.status,
-    positionSec: rec.positionSec,
-    playedAt: rec.playedAt,
+    positionSec: own ? rec.positionSec : null,
+    playedAt: own ? rec.playedAt : null,
     visibility: rec.visibility,
   }
 }
@@ -63,9 +70,9 @@ const isUniqueViolation = (err: unknown) =>
   typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505'
 
 // Presign only when playable; a processing/error row has no object to serve yet.
-async function detail(rec: AudioRecord) {
+async function detail(rec: AudioRecord, viewerId?: string) {
   return {
-    ...listItem(rec),
+    ...listItem(rec, viewerId),
     coverStyle: coerceCoverStyle((await userRepo.get(rec.userId))?.coverStyle),
     shareUrl: shareUrlFor(await usernameFor(rec.userId), await ensureSlug(rec)),
     audioUrl: rec.status === 'ready' ? await presignAudioUrl(rec.objectKey) : null,
@@ -102,7 +109,7 @@ export function apiRouter(): Router {
       for (const rec of items) {
         const ownerName = await nameOf(rec.userId)
         out.push({
-          ...listItem(rec),
+          ...listItem(rec, userId),
           coverStyle: styles.get(rec.userId) ?? 'classic',
           owner: rec.userId === userId ? null : ownerName,
           shareUrl: shareUrlFor(ownerName, await ensureSlug(rec)),
@@ -125,7 +132,7 @@ export function apiRouter(): Router {
       const rec = await byIdForViewer(userId, req.params.id)
       if (!rec) return res.status(404).json({ error: 'Not found' })
       // Flip a dead 'processing' row to 'error' before reporting.
-      res.json(await detail(await audioRepo.resolveStale(rec)))
+      res.json(await detail(await audioRepo.resolveStale(rec), userId))
     }),
   )
 
@@ -154,8 +161,10 @@ export function apiRouter(): Router {
       }
       const found = await audioRepo.setPosition(userId, req.params.id, positionSec)
       if (!found) {
-        // Position belongs to the owner's row — for a SAVED audio, no-op.
-        if (await savedRepo.isSaved(userId, req.params.id)) return res.status(204).end()
+        // Foreign audio (saved or just browsed): positions are per-user and
+        // live client-side for non-owners — accept and drop, never error on
+        // playback reporting.
+        if (await audioRepo.getByIdPublic(req.params.id)) return res.status(204).end()
         return res.status(404).json({ error: 'Not found' })
       }
       res.status(204).end()
@@ -369,7 +378,7 @@ export function apiRouter(): Router {
       }
       const rec = await audioRepo.setVisibility(userId, req.params.id, visibility as Visibility)
       if (!rec) return res.status(404).json({ error: 'Not found' })
-      res.json(await detail(rec))
+      res.json(await detail(rec, userId))
     }),
   )
 
@@ -490,7 +499,7 @@ export function apiRouter(): Router {
       const items = []
       for (const rec of recs) {
         items.push({
-          ...listItem(rec),
+          ...listItem(rec, userId),
           coverStyle: targetStyle,
           owner: target.username,
           shareUrl: shareUrlFor(target.username!, await ensureSlug(rec)),
@@ -528,7 +537,7 @@ export function apiRouter(): Router {
       // declare it — at runtime every shelf's rows come from the joined queries
       // that select it.
       const entry = (rec: AudioRecord & { ownerUsername: string; ownerCoverStyle?: CoverStyle }) => ({
-        ...listItem(rec),
+        ...listItem(rec, userId),
         coverStyle: rec.ownerCoverStyle ?? 'classic',
         owner: rec.ownerUsername,
         shareUrl: shareUrlFor(rec.ownerUsername, slugs.get(rec.id)!),
@@ -552,7 +561,7 @@ export function apiRouter(): Router {
       const items = []
       for (const rec of recs) {
         items.push({
-          ...listItem(rec),
+          ...listItem(rec), // anonymous browse: tag lists never carry positions
           coverStyle: rec.ownerCoverStyle,
           owner: rec.ownerUsername,
           shareUrl: shareUrlFor(rec.ownerUsername, await ensureSlug(rec)),
@@ -645,7 +654,7 @@ export function apiRouter(): Router {
       const items = []
       for (const rec of col.items) {
         items.push({
-          ...listItem(rec),
+          ...listItem(rec, userId),
           coverStyle: styles.get(rec.userId) ?? 'classic',
           owner: rec.userId === userId ? null : await nameOf(rec.userId),
         })
