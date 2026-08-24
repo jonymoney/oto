@@ -44,6 +44,7 @@ struct LibraryView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(PlayerModel.self) private var player
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var model = LibraryModel()
     @State private var newCollectionFor: AudioItem?
     @State private var newCollectionName = ""
@@ -176,6 +177,17 @@ struct LibraryView: View {
         }
     }
 
+    // Seeds the user's first generation: leans on the AI's memory of them,
+    // names oto explicitly so the model reaches for the connector.
+    private static let firstAudioPrompt =
+        "Based on my interests and curiosities, write a short piece (2–3 minutes) I'd love to listen to, then turn it into audio with oto."
+
+    private func firstAudioURL(_ base: String) -> URL {
+        var comps = URLComponents(string: base)!
+        comps.queryItems = [URLQueryItem(name: "q", value: Self.firstAudioPrompt)]
+        return comps.url!
+    }
+
     @ViewBuilder private var content: some View {
         if model.loading && model.items.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,8 +208,28 @@ struct LibraryView: View {
                                 .buttonStyle(.borderedProminent)
                         }
                     } else {
-                        ContentUnavailableView("No audios yet", systemImage: "waveform",
-                            description: Text("Generate audio in your AI chat and it shows up here."))
+                        // First-run empty state: hand the user a ready-made
+                        // prompt in their AI of choice. ?q= prefills the chat
+                        // on both; with the native app installed the universal
+                        // link opens it there instead of Safari.
+                        ContentUnavailableView {
+                            Label("Make your first audio", systemImage: "waveform")
+                        } description: {
+                            Text("Ask your AI to read or write something for you — it lands here, ready to play.")
+                        } actions: {
+                            VStack(spacing: 12) {
+                                HStack(spacing: 10) {
+                                    Button("Ask Claude") { openURL(firstAudioURL("https://claude.ai/new")) }
+                                    Button("Ask ChatGPT") { openURL(firstAudioURL("https://chatgpt.com/")) }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(Theme.accent)
+                                Link("First, connect oto to your AI",
+                                     destination: URL(string: "https://oto.audio/connect")!)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.ink3)
+                            }
+                        }
                     }
                 }
                 .containerRelativeFrame(.vertical)
