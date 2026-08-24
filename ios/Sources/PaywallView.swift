@@ -13,6 +13,7 @@ struct PaywallView: View {
     @State private var voices: [API.Voice] = ["sarah", "ethan", "adrian", "jasphina", "blaze", "grim"]
         .map { API.Voice(name: $0, provider: "fish") }
     @State private var language: String?
+    @State private var price: String?
     @State private var unlocked = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
@@ -28,6 +29,7 @@ struct PaywallView: View {
                 if !fish.isEmpty { voices = fish }
                 language = p.language
             }
+            price = try? await API.usage().price
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, !unlocked else { return }
@@ -89,7 +91,8 @@ struct PaywallView: View {
                             .padding(.vertical, 15)
                             .background(Theme.accent, in: Capsule())
                     }
-                    Text("Purchase completes on the web. Cancel anytime.")
+                    Text(price.map { "\($0) — cancel anytime. Purchase completes on the web." }
+                        ?? "Purchase completes on the web. Cancel anytime.")
                         .font(.caption)
                         .foregroundStyle(Theme.ink3)
                 }

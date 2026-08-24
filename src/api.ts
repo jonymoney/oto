@@ -16,7 +16,7 @@ import { VOICES, FISH_VOICES, providerForVoice } from './tts.js'
 import { presignAudioUrl, presignAvatarUrl, putAvatar, deleteAudioObject } from './storage.js'
 import { userIdFrom, authUserFrom } from './auth.js'
 import { config } from './config.js'
-import { createCheckoutSession, createPortalSession } from './billing.js'
+import { createCheckoutSession, createPortalSession, priceDisplay } from './billing.js'
 import { previewsRouter } from './previews.js'
 import { recommendationsFor } from './recs.js'
 import { usernameFor, ensureSlug, shareUrlFor, RESERVED_USERNAMES } from './share.js'
@@ -197,11 +197,14 @@ export function apiRouter(): Router {
       ])
       const quotaSec = config.QUOTA_MINUTES * 60
       const effectiveUnlimited = unlimited || quotaSec === 0
+      const showUpgrade = config.billingEnabled && !effectiveUnlimited
       res.json({
         generatedSec,
         quotaSec,
         unlimited: effectiveUnlimited,
-        showUpgrade: config.billingEnabled && !effectiveUnlimited,
+        showUpgrade,
+        // Paywall price line — a Stripe hiccup must not break the usage meter.
+        price: showUpgrade ? await priceDisplay().catch(() => null) : null,
       })
     }),
   )

@@ -254,12 +254,21 @@ enum API {
         let generatedSec: Double
         let quotaSec: Double
         let unlimited: Bool
-        let showUpgrade: Bool?
+        var showUpgrade: Bool?
+        // Display string for the paywall ("$6.99/month"); nil when hidden.
+        var price: String?
     }
 
     static func usage() async throws -> Usage {
         let (data, _) = try await send(request("api/usage"))
-        return try JSONDecoder().decode(Usage.self, from: data)
+        var usage = try JSONDecoder().decode(Usage.self, from: data)
+        // Storefront gate applied once here so every showUpgrade call site
+        // (library meter, settings, paywall) inherits it.
+        if await !Market.isUS() {
+            usage.showUpgrade = false
+            usage.price = nil
+        }
+        return usage
     }
 
     // MARK: Prefs

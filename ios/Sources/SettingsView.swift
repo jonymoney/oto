@@ -67,10 +67,13 @@ struct SettingsView: View {
     @State private var deleteError: String?
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
 
-    // Fish voices are gated behind unlimited (unless the server hides upgrade UI).
+    // Fish voices are gated behind unlimited whenever a quota is active —
+    // mirrors the server's generation-time gate. Deliberately NOT tied to
+    // showUpgrade: a non-US storefront hides the upgrade UI but the voices
+    // stay locked, they don't silently become free.
     private var fishLocked: Bool {
         guard let u = model.usage else { return false }
-        return !u.unlimited && u.showUpgrade != false
+        return !u.unlimited && u.quotaSec > 0
     }
 
     var body: some View {
@@ -106,7 +109,20 @@ struct SettingsView: View {
                                     // ponytail: one tap gesture per orb — a locked orb opens
                                     // the paywall (which has its own previews) instead of playing.
                                     if locked {
-                                        showingPaywall = true
+                                        if model.usage?.showUpgrade == true {
+                                            showingPaywall = true
+                                        } else {
+                                            // Upgrade UI hidden (non-US storefront or
+                                            // billing off): previews stay free, the
+                                            // selection stays locked.
+                                            Task {
+                                                await preview.toggle(
+                                                    voice: voice.name,
+                                                    provider: voice.provider,
+                                                    language: prefs.language
+                                                )
+                                            }
+                                        }
                                         return
                                     }
                                     if prefs.voice != voice.name {

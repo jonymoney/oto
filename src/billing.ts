@@ -69,6 +69,22 @@ export async function createCheckoutSession(userId: string, email?: string): Pro
   return session.url
 }
 
+// Price display string ("$6.99/month") for the paywall — fetched from Stripe
+// once and cached for the process lifetime (price changes mean a new price id
+// and a deploy anyway).
+let cachedPrice: string | null = null
+export async function priceDisplay(): Promise<string | null> {
+  if (cachedPrice) return cachedPrice
+  const price = await stripe().prices.retrieve(config.STRIPE_PRICE_ID!)
+  if (typeof price.unit_amount !== 'number') return null
+  const amount = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: price.currency.toUpperCase(),
+  }).format(price.unit_amount / 100)
+  cachedPrice = price.recurring ? `${amount}/${price.recurring.interval}` : amount
+  return cachedPrice
+}
+
 // A subscription is "paid" only while active or trialing.
 const isPaid = (status: string): boolean => status === 'active' || status === 'trialing'
 

@@ -385,7 +385,6 @@ struct LibraryView: View {
 /// total against the quota. Unlimited users get the toolbar ∞ mark instead.
 struct UsageMeter: View {
     let usage: API.Usage
-    @Environment(\.openURL) private var openURL
     @State private var showPaywall = false
 
     private var atLimit: Bool { usage.generatedSec >= usage.quotaSec }
@@ -397,20 +396,14 @@ struct UsageMeter: View {
                     .font(.subheadline.weight(.medium).monospacedDigit())
                     .foregroundStyle(atLimit ? Theme.danger : Theme.ink)
                 Spacer()
-                Button("Upgrade") {
-                    if usage.showUpgrade == true {
-                        showPaywall = true
-                    } else {
-                        Task {
-                            // App users are already signed in — go straight to
-                            // Stripe. Fall back to the web page if billing is off.
-                            if let url = try? await API.checkout() { openURL(url) }
-                            else { openURL(URL(string: "https://oto.audio/upgrade")!) }
-                        }
-                    }
+                // No upgrade affordance at all when the server hides it or the
+                // storefront isn't US — a web-checkout fallback here would
+                // violate App Store purchase rules outside the US.
+                if usage.showUpgrade == true {
+                    Button("Upgrade") { showPaywall = true }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
                 }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
             }
             GeometryReader { geo in
                 let frac = usage.quotaSec > 0 ? min(usage.generatedSec / usage.quotaSec, 1) : 0
