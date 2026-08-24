@@ -173,7 +173,8 @@ struct PaywallView: View {
         .transition(.scale.combined(with: .opacity))
     }
 
-    private func bullet(_ text: String, _ icon: String) -> some View {
+    // LocalizedStringKey so the feature rows resolve from Localizable.xcstrings.
+    private func bullet(_ text: LocalizedStringKey, _ icon: String) -> some View {
         Label {
             Text(text).foregroundStyle(Theme.ink)
         } icon: {
