@@ -11,6 +11,11 @@ import UIKit
 /// Unknown/absent style → classic. An audio always renders in its CREATOR's
 /// style (`item.coverStyle`), never the viewer's.
 ///
+/// Rendering: the ground is drawn with CoreGraphics into a bitmap on a
+/// background task and cached (see CoverRenderer) — SwiftUI never re-runs the
+/// generative math on the main thread. On a cache miss the view shows the
+/// style's flat paper/ground color and fades the bitmap in when ready.
+///
 /// Size tiers: below 160pt only the ground is drawn (call sites keep their
 /// existing emoji-chip treatment); at ≥160pt with a title, the editorial type
 /// layer (strap + title + emoji over a scrim/veil) is composed on top.
@@ -23,34 +28,48 @@ struct CoverView: View {
     var meta: String? = nil
     var emoji: String? = nil
 
-    private var resolvedStyle: String {
-        style == "ink" || style == "halftone" ? style : "classic"
-    }
+    @State private var rendered: UIImage?
+
+    private var resolvedStyle: String { CoverArt.resolve(style) }
     /// Classic mesh is a dark ground (scrim + light type); ink and halftone
     /// print on light paper stock (veil + dark ink type).
     private var darkGround: Bool { resolvedStyle == "classic" }
     private var showsType: Bool { size >= 160 && !(title ?? "").isEmpty }
 
+    private var cacheKey: String {
+        CoverRenderer.key(id: id, mood: mood, style: resolvedStyle, emoji: emoji, size: size)
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Canvas { ctx, canvasSize in
-                let s = canvasSize.width
-                switch resolvedStyle {
-                case "ink":
-                    CoverArt.drawInk(&ctx, s: s, id: id)
-                case "halftone":
-                    CoverArt.drawHalftone(&ctx, s: s, id: id, emoji: emoji)
-                default:
-                    CoverArt.drawClassic(&ctx, s: s, id: id, mood: mood)
-                }
-                if showsType {
-                    CoverArt.drawScrim(&ctx, s: s, dark: darkGround)
-                }
+            ground
+            if showsType {
+                CoverArt.scrim(dark: darkGround)
+                typeLayer
             }
-            if showsType { typeLayer }
         }
         .frame(width: size, height: size)
         .clipped()
+    }
+
+    /// Cached bitmap if available (synchronously — a screenful of hits costs
+    /// one NSCache lookup each), else the flat ground color while a
+    /// background render fills the cache.
+    @ViewBuilder private var ground: some View {
+        if let ui = CoverRenderer.cached(cacheKey) ?? rendered {
+            Image(uiImage: ui)
+                .resizable()
+                .frame(width: size, height: size)
+                .transition(.opacity)
+        } else {
+            CoverArt.groundColor(id: id, style: resolvedStyle, mood: mood)
+                .frame(width: size, height: size)
+                .task(id: cacheKey) {
+                    let img = await CoverRenderer.image(
+                        id: id, mood: mood, style: resolvedStyle, emoji: emoji, size: size)
+                    withAnimation(.easeOut(duration: 0.22)) { rendered = img }
+                }
+        }
     }
 
     // MARK: Editorial type layer (lab: editorialType() — geometry-approximate,
@@ -121,8 +140,121 @@ struct Mulberry32 {
     }
 }
 
+// MARK: - Bitmap renderer + cache
+
+/// Renders cover grounds to UIImages off the main thread and memoizes them.
+/// Everything here is nonisolated: NSCache is thread-safe, the in-flight map
+/// is guarded by a lock, and the CG draw code touches no main-actor state.
+enum CoverRenderer {
+    nonisolated(unsafe) private static let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.totalCostLimit = 32 * 1024 * 1024 // bytes (cost = bitmap bytes)
+        return c
+    }()
+    // In-flight renders, deduped so a screenful of one cover renders once.
+    nonisolated(unsafe) private static var inflight: [String: Task<UIImage, Never>] = [:]
+    private static let lock = NSLock()
+
+    /// Two size buckets: thumbnails (≤120pt requests → 120pt @3x bitmap) and
+    /// hero/export sizes (→ 600pt @2x, plenty for a full-width cover).
+    static func bucket(for size: CGFloat) -> (points: CGFloat, scale: CGFloat) {
+        size <= 120 ? (120, 3) : (600, 2)
+    }
+
+    static func key(id: String, mood: String?, style: String, emoji: String?, size: CGFloat) -> String {
+        // mood feeds the classic palette, emoji the halftone plates — both are
+        // stable per item, but keying on them keeps correctness obvious.
+        "\(id)|\(CoverArt.resolve(style))|\(mood ?? "")|\(emoji ?? "")|\(Int(bucket(for: size).points))"
+    }
+
+    static func cached(_ key: String) -> UIImage? {
+        cache.object(forKey: key as NSString)
+    }
+
+    /// Await the bitmap: cache hit → immediate; miss → render on a detached
+    /// background task (joined by every concurrent requester of the same key).
+    static func image(id: String, mood: String?, style: String, emoji: String?, size: CGFloat) async -> UIImage {
+        let k = key(id: id, mood: mood, style: style, emoji: emoji, size: size)
+        if let hit = cached(k) { return hit }
+        return await renderTask(k, id: id, mood: mood, style: style, emoji: emoji, size: size).value
+    }
+
+    // Synchronous (NSLock is not async-safe): find or start the render task.
+    private static func renderTask(
+        _ k: String, id: String, mood: String?, style: String, emoji: String?, size: CGFloat
+    ) -> Task<UIImage, Never> {
+        let (points, scale) = bucket(for: size)
+        lock.lock()
+        defer { lock.unlock() }
+        if let t = inflight[k] { return t }
+        let t = Task<UIImage, Never>.detached(priority: .userInitiated) {
+            let img = renderGround(id: id, mood: mood, style: style, emoji: emoji,
+                                   points: points, scale: scale)
+            finish(k, img: img)
+            return img
+        }
+        inflight[k] = t
+        return t
+    }
+
+    // Synchronous for the same reason: store + clear the in-flight entry.
+    private static func finish(_ k: String, img: UIImage) {
+        store(img, key: k)
+        lock.lock()
+        inflight[k] = nil
+        lock.unlock()
+    }
+
+    /// Synchronous render-and-cache. For the export paths (lock-screen artwork,
+    /// share preview) that rasterize CoverView with ImageRenderer: warming the
+    /// cache first means ImageRenderer captures the real art, not the async
+    /// placeholder. Off the scroll hot path — blocking is fine there.
+    @discardableResult
+    static func prewarm(id: String, mood: String?, style: String, emoji: String?, size: CGFloat) -> UIImage {
+        let k = key(id: id, mood: mood, style: style, emoji: emoji, size: size)
+        if let hit = cached(k) { return hit }
+        let (points, scale) = bucket(for: size)
+        let img = renderGround(id: id, mood: mood, style: style, emoji: emoji,
+                               points: points, scale: scale)
+        store(img, key: k)
+        return img
+    }
+
+    private static func store(_ img: UIImage, key: String) {
+        let px = img.size.width * img.scale * img.size.height * img.scale
+        cache.setObject(img, forKey: key as NSString, cost: Int(px) * 4)
+    }
+
+    /// Pure CG draw into a bitmap — safe on any thread.
+    private static func renderGround(
+        id: String, mood: String?, style: String, emoji: String?,
+        points: CGFloat, scale: CGFloat
+    ) -> UIImage {
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = scale
+        fmt.opaque = true // every style fills the full square first
+        return UIGraphicsImageRenderer(size: CGSize(width: points, height: points), format: fmt)
+            .image { rctx in
+                let c = rctx.cgContext
+                let s = Double(points)
+                switch CoverArt.resolve(style) {
+                case "ink":
+                    CoverArt.drawInk(c, s: s, id: id)
+                case "halftone":
+                    CoverArt.drawHalftone(c, s: s, id: id, emoji: emoji)
+                default:
+                    CoverArt.drawClassic(c, s: s, id: id, mood: mood)
+                }
+            }
+    }
+}
+
 enum CoverArt {
     static let tau = Double.pi * 2
+
+    static func resolve(_ style: String) -> String {
+        style == "ink" || style == "halftone" ? style : "classic"
+    }
 
     static func fnv1a(_ s: String) -> UInt32 {
         var h: UInt32 = 2166136261
@@ -143,15 +275,40 @@ enum CoverArt {
         )
     }
 
-    private static func square(_ s: Double) -> Path {
-        Path(CGRect(x: 0, y: 0, width: s, height: s))
+    private static func cgColor(_ hex: Int, alpha: Double = 1) -> CGColor {
+        CGColor(
+            srgbRed: Double((hex >> 16) & 0xff) / 255,
+            green:   Double((hex >> 8) & 0xff) / 255,
+            blue:    Double(hex & 0xff) / 255,
+            alpha:   alpha
+        )
     }
 
-    private static func circle(_ cx: Double, _ cy: Double, _ r: Double) -> Path {
-        Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
+    private static func squareRect(_ s: Double) -> CGRect {
+        CGRect(x: 0, y: 0, width: s, height: s)
     }
 
-    // MARK: - Classic mesh (unchanged — bit-for-bit with the original)
+    private static func circleRect(_ cx: Double, _ cy: Double, _ r: Double) -> CGRect {
+        CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
+    }
+
+    /// The style's flat ground/paper color — the pre-render placeholder. Pulls
+    /// only as far into the PRNG stream as each style's own paper choice, in
+    /// the exact same order the full renderer does.
+    static func groundColor(id: String, style: String, mood: String?) -> Color {
+        var rng = Mulberry32(seed: fnv1a(id))
+        switch resolve(style) {
+        case "ink":
+            _ = rng.next() // family pull comes first in drawInk
+            return color(pick(&rng, inkStock).paper)
+        case "halftone":
+            return color(pick(&rng, htInks).paper)
+        default:
+            return palette(id: id, mood: mood)[2]
+        }
+    }
+
+    // MARK: - Classic mesh (unchanged math — bit-for-bit with the original)
 
     // mood → three hex colors. Order of the fallback list is load-bearing.
     private static let palettes: [String: [Int]] = [
@@ -163,35 +320,37 @@ enum CoverArt {
     ]
     private static let fallbackOrder = ["warm", "calm", "energetic", "serious", "playful"]
 
-    static func palette(id: String, mood: String?) -> [Color] {
-        if let m = mood, !m.isEmpty, let hit = palettes[m] {
-            return hit.map(color(_:))
-        }
-        let key = fallbackOrder[Int(fnv1a(id) % 5)]
-        return palettes[key]!.map(color(_:))
+    static func paletteHex(id: String, mood: String?) -> [Int] {
+        if let m = mood, !m.isEmpty, let hit = palettes[m] { return hit }
+        return palettes[fallbackOrder[Int(fnv1a(id) % 5)]]!
     }
 
-    static func drawClassic(_ ctx: inout GraphicsContext, s: Double, id: String, mood: String?) {
-        let w = s
-        let pal = palette(id: id, mood: mood)
-        let sq = square(s)
-        ctx.fill(sq, with: .color(pal[2]))
+    static func palette(id: String, mood: String?) -> [Color] {
+        paletteHex(id: id, mood: mood).map(color(_:))
+    }
 
+    static func drawClassic(_ c: CGContext, s: Double, id: String, mood: String?) {
+        let pal = paletteHex(id: id, mood: mood)
+        c.setFillColor(cgColor(pal[2]))
+        c.fill(squareRect(s))
+
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
         var rng = Mulberry32(seed: fnv1a(id))
         for i in 0..<7 {
-            let x = rng.next() * w
-            let y = rng.next() * w
-            let r = w * (0.35 + rng.next() * 0.5)
-            let c = pal[i % 3]
-            ctx.fill(
-                sq,
-                with: .radialGradient(
-                    Gradient(colors: [c, c.opacity(0)]),
-                    center: CGPoint(x: x, y: y),
-                    startRadius: 0,
-                    endRadius: r
-                )
-            )
+            let x = rng.next() * s
+            let y = rng.next() * s
+            let r = s * (0.35 + rng.next() * 0.5)
+            let hex = pal[i % 3]
+            // Soft blob: color at the center fading to the same color at
+            // alpha 0 — identical to the canvas/SwiftUI radial ramp.
+            guard let grad = CGGradient(
+                colorsSpace: srgb,
+                colors: [cgColor(hex), cgColor(hex, alpha: 0)] as CFArray,
+                locations: [0, 1]
+            ) else { continue }
+            let center = CGPoint(x: x, y: y)
+            c.drawRadialGradient(grad, startCenter: center, startRadius: 0,
+                                 endCenter: center, endRadius: r, options: [])
         }
     }
 
@@ -209,32 +368,33 @@ enum CoverArt {
         (0xF2EDDF, 0xD3381C), // hi on cream
     ]
 
-    static func drawInk(_ ctx: inout GraphicsContext, s: Double, id: String) {
+    static func drawInk(_ c: CGContext, s: Double, id: String) {
         var rng = Mulberry32(seed: fnv1a(id))
         // FIRST pull selects the sub-family, then that family draws with the same rng.
         let family = Int(rng.next() * 4)
         switch family {
-        case 0: inkRings(&ctx, s, &rng)
-        case 1: inkContours(&ctx, s, &rng)
-        case 2: inkBurst(&ctx, s, &rng)
-        default: inkHex(&ctx, s, &rng)
+        case 0: inkRings(c, s, &rng)
+        case 1: inkContours(c, s, &rng)
+        case 2: inkBurst(c, s, &rng)
+        default: inkHex(c, s, &rng)
         }
     }
 
-    /// Paper fill + 6.5% poster-margin clip. Returns (paper, ink, clipped ctx).
+    /// Paper fill + 6.5% poster-margin clip (left applied on the context —
+    /// each family draws once into a fresh bitmap context, nothing restores).
     private static func inkStart(
-        _ base: inout GraphicsContext, _ s: Double, _ rng: inout Mulberry32
-    ) -> (paper: Color, ink: Color, x: GraphicsContext) {
+        _ c: CGContext, _ s: Double, _ rng: inout Mulberry32
+    ) -> (paper: Int, ink: Int) {
         let st = pick(&rng, inkStock)
-        base.fill(square(s), with: .color(color(st.paper)))
-        var x = base
+        c.setFillColor(cgColor(st.paper))
+        c.fill(squareRect(s))
         let m = s * 0.065
-        x.clip(to: Path(CGRect(x: m, y: m, width: s - 2 * m, height: s - 2 * m)))
-        return (color(st.paper), color(st.ink), x)
+        c.clip(to: CGRect(x: m, y: m, width: s - 2 * m, height: s - 2 * m))
+        return st
     }
 
-    private static func inkRings(_ base: inout GraphicsContext, _ s: Double, _ rng: inout Mulberry32) {
-        let (_, ink, x0) = inkStart(&base, s, &rng)
+    private static func inkRings(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let (_, ink) = inkStart(c, s, &rng)
         let crop = rng.next() < 0.38
         let cx = s * (crop ? (rng.next() < 0.5 ? 0.16 : 0.84) : 0.5 + (rng.next() - 0.5) * 0.18)
         let cy = s * (crop ? 0.5 + (rng.next() - 0.5) * 0.5 : 0.5 + (rng.next() - 0.5) * 0.18)
@@ -245,19 +405,22 @@ enum CoverArt {
         let dir = rng.next() * tau
         _ = rng.next() // spin — only multiplies t, but the pull must happen
         let drift = gap * (0.9 + rng.next() * 0.7)
-        var x = x0
-        x.clip(to: circle(cx, cy, rad))
+        c.addEllipse(in: circleRect(cx, cy, rad))
+        c.clip()
+        c.setStrokeColor(cgColor(ink))
+        c.setLineWidth(lw)
         for i in 1...rings {
             let k = Double(i) / Double(rings)
             let ocx = cx + cos(dir) * drift * k
             let ocy = cy + sin(dir) * drift * k
-            x.stroke(circle(ocx, ocy, gap * Double(i) - lw * 0.5), with: .color(ink), lineWidth: lw)
+            c.strokeEllipse(in: circleRect(ocx, ocy, gap * Double(i) - lw * 0.5))
         }
-        x.fill(circle(cx, cy, gap * 0.55), with: .color(ink)) // focal: the solid eye
+        c.setFillColor(cgColor(ink))
+        c.fillEllipse(in: circleRect(cx, cy, gap * 0.55)) // focal: the solid eye
     }
 
-    private static func inkContours(_ base: inout GraphicsContext, _ s: Double, _ rng: inout Mulberry32) {
-        let (_, ink, x) = inkStart(&base, s, &rng)
+    private static func inkContours(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let (_, ink) = inkStart(c, s, &rng)
         let cx = s * (0.42 + rng.next() * 0.16)
         let cy = s * (0.42 + rng.next() * 0.16)
         let rBase = s * (0.10 + rng.next() * 0.06)
@@ -279,9 +442,10 @@ enum CoverArt {
             for q in 0..<3 { r += rBase * a[q] * fall * sin(n[q] * th + p[q]) }
             return r
         }
+        c.setFillColor(cgColor(ink))
         var k = -2
         while k < bands {
-            var path = Path()
+            let path = CGMutablePath()
             for lvl in 0..<2 {
                 let kk = Double(k + lvl)
                 for i in 0...seg {
@@ -292,13 +456,14 @@ enum CoverArt {
                 }
                 path.closeSubpath()
             }
-            x.fill(path, with: .color(ink), style: FillStyle(eoFill: true))
+            c.addPath(path)
+            c.fillPath(using: .evenOdd)
             k += 2
         }
     }
 
-    private static func inkBurst(_ base: inout GraphicsContext, _ s: Double, _ rng: inout Mulberry32) {
-        let (paper, ink, x) = inkStart(&base, s, &rng)
+    private static func inkBurst(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let (paper, ink) = inkStart(c, s, &rng)
         let edge = rng.next() < 0.45
         let ox = s * (edge ? (rng.next() < 0.5 ? 0.08 : 0.92) : 0.5 + (rng.next() - 0.5) * 0.14)
         let oy = s * (edge ? 0.5 + (rng.next() - 0.5) * 0.6 : 0.5 + (rng.next() - 0.5) * 0.14)
@@ -306,28 +471,33 @@ enum CoverArt {
         _ = rng.next() // spin — t only
         let ph = rng.next() * tau
         let thin = 0.16 + rng.next() * 0.16
+        c.setFillColor(cgColor(ink))
         for i in 0..<spokes {
             let a0 = ph + Double(i) / Double(spokes) * tau
             // JS pulls R only for even spokes — preserve that order exactly.
             let w = tau / Double(spokes) * (i % 2 == 1 ? thin : 0.40 + rng.next() * 0.12)
-            var path = Path()
+            let path = CGMutablePath()
             path.move(to: CGPoint(x: ox, y: oy))
             // The arc at r = 1.6s lies entirely off-canvas; a polyline arc
-            // avoids any Path.addArc winding ambiguity.
+            // avoids any addArc winding ambiguity.
             for j in 0...8 {
                 let an = a0 + w * Double(j) / 8
                 path.addLine(to: CGPoint(x: ox + cos(an) * s * 1.6, y: oy + sin(an) * s * 1.6))
             }
             path.closeSubpath()
-            x.fill(path, with: .color(ink))
+            c.addPath(path)
+            c.fillPath()
         }
         let rr = s * (0.10 + rng.next() * 0.07) // focal: hub + hairline
-        x.fill(circle(ox, oy, rr), with: .color(paper))
-        x.stroke(circle(ox, oy, rr * (1.45 + 0.05 * sin(ph))), with: .color(ink), lineWidth: s * 0.012)
+        c.setFillColor(cgColor(paper))
+        c.fillEllipse(in: circleRect(ox, oy, rr))
+        c.setStrokeColor(cgColor(ink))
+        c.setLineWidth(s * 0.012)
+        c.strokeEllipse(in: circleRect(ox, oy, rr * (1.45 + 0.05 * sin(ph))))
     }
 
-    private static func inkHex(_ base: inout GraphicsContext, _ s: Double, _ rng: inout Mulberry32) {
-        let (_, ink, x) = inkStart(&base, s, &rng)
+    private static func inkHex(_ c: CGContext, _ s: Double, _ rng: inout Mulberry32) {
+        let (_, ink) = inkStart(c, s, &rng)
         let r = s * (0.055 + rng.next() * 0.035)
         let lw = r * 0.13 // t = 0: the .02·sin breath term is 0
         let dx = r * 1.732, dy = r * 1.5
@@ -336,12 +506,15 @@ enum CoverArt {
         let fy = s * (0.25 + rng.next() * 0.5)
         let fr = r * (1.2 + rng.next() * 0.9)
         // drift = sin(0)·.5 = 0
-        let strokeStyle = StrokeStyle(lineWidth: lw, lineJoin: .round)
+        c.setFillColor(cgColor(ink))
+        c.setStrokeColor(cgColor(ink))
+        c.setLineWidth(lw)
+        c.setLineJoin(.round)
         for j in -1..<rows {
             for i in -1..<cols {
                 let hx = Double(i) * dx + (j & 1 == 1 ? dx / 2 : 0)
                 let hy = Double(j) * dy
-                var path = Path()
+                let path = CGMutablePath()
                 for k in 0..<6 {
                     let an = Double(k) * tau / 6 + .pi / 6
                     let pt = CGPoint(x: hx + cos(an) * r * 0.94, y: hy + sin(an) * r * 0.94)
@@ -349,9 +522,11 @@ enum CoverArt {
                 }
                 path.closeSubpath()
                 if ((hx - fx) * (hx - fx) + (hy - fy) * (hy - fy)).squareRoot() < fr {
-                    x.fill(path, with: .color(ink)) // focal cluster
+                    c.addPath(path)
+                    c.fillPath() // focal cluster
                 }
-                x.stroke(path, with: .color(ink), style: strokeStyle)
+                c.addPath(path)
+                c.strokePath()
             }
         }
     }
@@ -371,7 +546,7 @@ enum CoverArt {
         (inks: [0x819C8B, 0xB7282E, 0x171310], paper: 0xF0EADB), // seiji/akane
     ]
 
-    static func drawHalftone(_ ctx: inout GraphicsContext, s: Double, id: String, emoji: String?) {
+    static func drawHalftone(_ c: CGContext, s: Double, id: String, emoji: String?) {
         var rng = Mulberry32(seed: fnv1a(id))
         let fixed: String? = (emoji?.isEmpty == false) ? emoji : nil
         // Production contract (matches src/share.ts + ui/src/covers.ts): emoji
@@ -404,7 +579,8 @@ enum CoverArt {
         let key = "\(id)|\(useEmoji)\(em)"
         let dens = densityBuffers(key: key, useEmoji: useEmoji, emoji: em)
 
-        ctx.fill(square(s), with: .color(color(set.paper)))
+        c.setFillColor(cgColor(set.paper))
+        c.fill(squareRect(s))
         // t = 0 evaluations of the breathing/turn terms.
         let zm = zoom * (1 + 0.045 * sin(brz))
         let rt = spin + 0.05 * sin(dph)
@@ -414,7 +590,7 @@ enum CoverArt {
         let reach = Int(ceil(s * 0.78 / pitch))
         for k in 0..<3 {
             let ca = cos(ang[k]), sa = sin(ang[k])
-            var path = Path()
+            let path = CGMutablePath()
             for j in -reach...reach {
                 for i in -reach...reach {
                     let gx = Double(i) * pitch + reg[k].0
@@ -432,10 +608,15 @@ enum CoverArt {
                     path.addEllipse(in: CGRect(x: dxp - rr, y: dyp - rr, width: rr * 2, height: rr * 2))
                 }
             }
-            var layer = ctx
-            layer.blendMode = .multiply
-            layer.opacity = k == 2 ? 0.92 : 0.85
-            layer.fill(path, with: .color(color(set.inks[k])))
+            // One fill per plate (matches the GraphicsContext layer-copy):
+            // multiply blend + plate opacity applied to the whole dot path.
+            c.saveGState()
+            c.setBlendMode(.multiply)
+            c.setAlpha(k == 2 ? 0.92 : 0.85)
+            c.setFillColor(cgColor(set.inks[k]))
+            c.addPath(path)
+            c.fillPath()
+            c.restoreGState()
         }
     }
 
@@ -452,7 +633,8 @@ enum CoverArt {
 
     // MARK: Halftone density plates (JS htSource) — computed once per key.
 
-    // nonisolated(unsafe): every access is guarded by densLock below.
+    // nonisolated(unsafe): every access is guarded by densLock below (renders
+    // now run on background tasks, so the lock is load-bearing).
     nonisolated(unsafe) private static var densCache: [String: [[Float]]] = [:]
     private static let densLock = NSLock()
 
@@ -628,7 +810,9 @@ enum CoverArt {
 
     // MARK: - Scrim / veil under the editorial type (lab: coverScrim)
 
-    static func drawScrim(_ ctx: inout GraphicsContext, s: Double, dark: Bool) {
+    /// Same stops the Canvas scrim used — a plain SwiftUI gradient now, since
+    /// only the ground raster moved into the cached bitmap.
+    static func scrim(dark: Bool) -> LinearGradient {
         let stops: [Gradient.Stop]
         if dark { // legibility scrim
             let c = Color(red: 8 / 255, green: 7 / 255, blue: 5 / 255)
@@ -645,14 +829,7 @@ enum CoverArt {
                 .init(color: c.opacity(0.06), location: 1),
             ]
         }
-        ctx.fill(
-            square(s),
-            with: .linearGradient(
-                Gradient(stops: stops),
-                startPoint: .zero,
-                endPoint: CGPoint(x: 0, y: s)
-            )
-        )
+        return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
     }
 }
 

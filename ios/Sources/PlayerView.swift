@@ -253,6 +253,10 @@ final class PlayerModel {
     /// Same deterministic cover as CoverView on screen (same seed/mood → same art),
     /// rendered to a 1024px UIImage for the lock screen / CarPlay.
     private static func renderArtwork(for item: AudioItem) -> MPMediaItemArtwork? {
+        // Warm the ground-bitmap cache synchronously (off the scroll hot path)
+        // so ImageRenderer captures the real art, not the async placeholder.
+        CoverRenderer.prewarm(id: item.id, mood: item.mood, style: item.coverStyle,
+                              emoji: item.emoji, size: 512)
         let renderer = ImageRenderer(content: CoverView(
             id: item.id, mood: item.mood, size: 512, style: item.coverStyle,
             title: item.title,
@@ -518,7 +522,11 @@ struct PlayerView: View {
         }
         .task {
             // Render the deterministic cover locally for the share preview —
-            // identical art to the server's cover.png, works offline.
+            // identical art to the server's cover.png, works offline. Await the
+            // ground bitmap first (off-main; also feeds the on-screen cover)
+            // so ImageRenderer captures the real art, not the placeholder.
+            _ = await CoverRenderer.image(id: item.id, mood: item.mood,
+                                          style: item.coverStyle, emoji: item.emoji, size: 300)
             let renderer = ImageRenderer(content: CoverView(
                 id: item.id, mood: item.mood, size: 300, style: item.coverStyle,
                 title: item.title,
