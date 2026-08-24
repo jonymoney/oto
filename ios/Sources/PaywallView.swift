@@ -15,6 +15,10 @@ struct PaywallView: View {
     @State private var language: String?
     @State private var price: String?
     @State private var unlocked = false
+    // Purchase rail: US storefront → Stripe web checkout (commission-free);
+    // everywhere else → Apple IAP. nil = storefront not resolved yet.
+    @State private var usStorefront: Bool?
+    @State private var store = StoreIAP()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
@@ -30,17 +34,13 @@ struct PaywallView: View {
                 language = p.language
             }
             price = try? await API.usage().price
+            usStorefront = await Market.isUS()
+            if usStorefront == false { await store.load() }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, !unlocked else { return }
             Task {
-                if let u = try? await API.usage(), u.unlimited {
-                    preview.stop()
-                    Haptics.success() // "You're unlimited" appearing
-                    withAnimation { unlocked = true }
-                    try? await Task.sleep(for: .seconds(1.5))
-                    dismiss()
-                }
+                if let u = try? await API.usage(), u.unlimited { celebrate() }
             }
         }
         .onDisappear { preview.stop() }
@@ -77,28 +77,87 @@ struct PaywallView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(spacing: 10) {
-                    Button {
-                        Haptics.impact()
-                        Task {
-                            if let url = try? await API.checkout() { openURL(url) }
-                            else { openURL(URL(string: "https://oto.audio/upgrade")!) }
-                        }
-                    } label: {
-                        Text("Upgrade")
-                            .font(.headline)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 15)
-                            .background(Theme.accent, in: Capsule())
+                    if usStorefront == false {
+                        appleRail
+                    } else {
+                        stripeRail
                     }
-                    Text(price.map { "\($0) — cancel anytime. Purchase completes on the web." }
-                        ?? "Purchase completes on the web. Cancel anytime.")
-                        .font(.caption)
-                        .foregroundStyle(Theme.ink3)
+                    // App Review requires both on the paywall screen itself.
+                    HStack(spacing: 16) {
+                        Link("Terms", destination: URL(string: "https://oto.audio/terms")!)
+                        Link("Privacy", destination: URL(string: "https://oto.audio/privacy")!)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(Theme.ink3)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
             }
+        }
+    }
+
+    /// US storefront: Stripe web checkout (commission-free under the US
+    /// external-purchase rule).
+    private var stripeRail: some View {
+        VStack(spacing: 10) {
+            Button {
+                Haptics.impact()
+                Task {
+                    if let url = try? await API.checkout() { openURL(url) }
+                    else { openURL(URL(string: "https://oto.audio/upgrade")!) }
+                }
+            } label: {
+                upgradeLabel("Upgrade")
+            }
+            Text(price.map { "\($0) — cancel anytime. Purchase completes on the web." }
+                ?? "Purchase completes on the web. Cancel anytime.")
+                .font(.caption)
+                .foregroundStyle(Theme.ink3)
+        }
+    }
+
+    /// Everywhere else: Apple In-App Purchase.
+    @ViewBuilder private var appleRail: some View {
+        if let product = store.product {
+            Button {
+                Haptics.impact()
+                Task { if await store.purchase() { celebrate() } }
+            } label: {
+                upgradeLabel(store.purchasing ? "…" : "Upgrade")
+            }
+            .disabled(store.purchasing)
+            Text("\(product.displayPrice)/month — cancel anytime in Settings.")
+                .font(.caption)
+                .foregroundStyle(Theme.ink3)
+        } else {
+            // Product not published (pre-launch) or Store unreachable.
+            Text("Purchases aren't available right now.")
+                .font(.caption)
+                .foregroundStyle(Theme.ink3)
+        }
+        Button("Restore Purchases") {
+            Task { if await store.restore() { celebrate() } }
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(Theme.ink2)
+    }
+
+    private func upgradeLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 15)
+            .background(Theme.accent, in: Capsule())
+    }
+
+    private func celebrate() {
+        preview.stop()
+        Haptics.success() // "You're unlimited" appearing
+        withAnimation { unlocked = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            dismiss()
         }
     }
 

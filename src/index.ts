@@ -16,6 +16,7 @@ import { shareRouter, shortShareRouter } from './share.js'
 import { previewsRouter } from './previews.js'
 import { apiRouter } from './api.js'
 import { handleWebhookEvent } from './billing.js'
+import { appleWebhookRouter, appleSyncRouter } from './apple-iap.js'
 import { drainGenerationJobs } from './jobs.js'
 
 const app = express()
@@ -134,6 +135,11 @@ app.use(shareRouter())
 // public: samples are generated once per (provider, lang, voice) then only
 // presigned, so anonymous traffic can't drive synthesis cost.
 app.use(previewsRouter())
+
+// Apple IAP: App Store Server Notifications v2 (public; Apple's JWS signature
+// is the auth) and the app's authed transaction sync.
+app.use(appleWebhookRouter())
+app.use('/api', apiAuthMiddleware(), appleSyncRouter())
 
 // REST JSON API for native clients (iOS). Validates the Better Auth session
 // bearer via getSession — NOT the JWT path /mcp uses.

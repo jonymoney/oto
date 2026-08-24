@@ -339,6 +339,20 @@ enum API {
     /// Starts a Stripe Checkout for the signed-in user and returns the hosted
     /// URL to open. Throws if billing is unconfigured (501) — caller falls back
     /// to the web /upgrade page.
+    // MARK: Apple IAP
+
+    private struct AppleSyncResult: Decodable { let unlimited: Bool }
+
+    /// Report a StoreKit transaction (JWS) to the server; returns the
+    /// resulting unlimited state.
+    static func appleSync(jws: String) async throws -> Bool {
+        var req = request("api/billing/apple/sync", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["jws": jws])
+        let (data, _) = try await send(req)
+        return try JSONDecoder().decode(AppleSyncResult.self, from: data).unlimited
+    }
+
     static func checkout() async throws -> URL {
         let (data, _) = try await send(request("api/billing/checkout", method: "POST"))
         let str = try JSONDecoder().decode(CheckoutURL.self, from: data).url

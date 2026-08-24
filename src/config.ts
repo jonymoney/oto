@@ -23,6 +23,14 @@ const EnvSchema = z.object({
   // App Banner on share/profile pages. Unset = no banner.
   APP_STORE_ID: z.string().optional(),
 
+  // ── Apple In-App Purchase (non-US paywall rail) ─────────────────────────
+  // The auto-renewable subscription's product id — must match App Store
+  // Connect exactly. The iOS app hardcodes the same id (StoreIAP.swift).
+  APPLE_PRODUCT_ID: z.string().default('audio.oto.app.unlimited.monthly'),
+  // Apple's numeric app id, assigned when the ASC app record is created.
+  // Required to verify PRODUCTION-signed transactions; sandbox works without.
+  APPLE_APP_APPLE_ID: z.coerce.number().optional(),
+
   // ── Better Auth (self-hosted authorization server) ──────────────────────
   // Public origin of this service — Better Auth's baseURL and JWT issuer.
   BETTER_AUTH_URL: z.string().url(),
