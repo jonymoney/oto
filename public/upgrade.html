@@ -18,6 +18,8 @@
          font:inherit;font-weight:600;cursor:pointer}
   button:disabled{opacity:.5;cursor:default}
   .msg{margin-top:1rem;min-height:1.2rem;font-size:.85rem}
+  .btn{display:inline-block;margin-top:1.25rem;padding:.7rem 1.6rem;background:var(--accent);
+       color:#181A13;border-radius:6px;font-weight:600;text-decoration:none}
   .err{color:#FF7D92}
   .hide{display:none}
 </style></head><body><main>
@@ -51,7 +53,20 @@
 
   if (status === 'success') {
     hide(emailForm);
-    lede.textContent = 'You are now on oto unlimited — thank you. Head back to your chat and keep generating.';
+    lede.textContent = 'You are now on oto unlimited — thank you.';
+    // Checkout opened from the iOS app lands here in Safari: bounce back to
+    // the app via its URL scheme (auto once, plus a tap fallback). On desktop
+    // the scheme means nothing, so only offer it on iPhone/iPad.
+    if (/iPhone|iPad/.test(navigator.userAgent)) {
+      var back = document.createElement('a');
+      back.href = 'otoaudio://upgraded';
+      back.className = 'btn';
+      back.textContent = 'Back to oto';
+      msg.parentNode.insertBefore(back, msg);
+      setTimeout(function(){ location.href = 'otoaudio://upgraded'; }, 600);
+    } else {
+      lede.textContent += ' Head back to your chat and keep generating.';
+    }
   } else if (status === 'cancel') {
     lede.textContent = 'Checkout canceled. No charge was made. You can subscribe whenever you like.';
   }
