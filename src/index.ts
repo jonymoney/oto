@@ -63,11 +63,25 @@ app.get('/favicon.ico', (_req, res) => {
 
 // Landing for the bare domain: where Site-URL fallbacks and curious visitors end up.
 // Also Stripe's business-verification page: name, what we sell, pricing, support contact.
-const landingHtml = readFileSync(path.join(publicDir, 'landing.html'), 'utf8')
-  .replace('__MCP_URL__', config.MCP_SERVER_URL)
+const loadLanding = (file: string) =>
+  readFileSync(path.join(publicDir, file), 'utf8').replace('__MCP_URL__', config.MCP_SERVER_URL)
+const landingHtml = loadLanding('landing.html')
 app.get('/', (_req, res) => {
   res.type('html').send(landingHtml)
 })
+// Localized landings: full translated copies of landing.html, one route per language.
+const localizedLandings: Record<string, string> = {
+  es: loadLanding('landing.es.html'),
+  zh: loadLanding('landing.zh-Hans.html'),
+  ja: loadLanding('landing.ja.html'),
+  de: loadLanding('landing.de.html'),
+  fr: loadLanding('landing.fr.html'),
+}
+for (const [lang, html] of Object.entries(localizedLandings)) {
+  app.get(`/${lang}`, (_req, res) => {
+    res.type('html').send(html)
+  })
+}
 // Landing screenshots: drop pngs into public/img and reference them as /img/<name>.
 app.use('/img', express.static(path.join(publicDir, 'img')))
 
@@ -75,7 +89,7 @@ app.get('/robots.txt', (_req, res) => {
   res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: https://oto.audio/sitemap.xml\n')
 })
 app.get('/sitemap.xml', (_req, res) => {
-  const urls = ['/', '/terms', '/privacy']
+  const urls = ['/', '/es', '/zh', '/ja', '/de', '/fr', '/terms', '/privacy']
     .map((p) => `<url><loc>https://oto.audio${p}</loc></url>`)
     .join('')
   res.type('application/xml')
